@@ -18,20 +18,96 @@ if (typeof Telegram !== "undefined" && Telegram.WebApp) {
     Telegram.WebApp.expand();
 }
 
-function getTelegramUserId() {
+const API_BASE_URL = "https://your-server-domain.com";
+const LOCAL_CACHE_KEY = "dunkrise_profile_cache";
+
+function getTelegramInitDataRaw() {
     try {
-        const user = Telegram.WebApp.initDataUnsafe.user;
-        if (user && user.id) {
-            return String(user.id);
+        if (typeof Telegram !== "undefined" && Telegram.WebApp) {
+            return Telegram.WebApp.initData || "";
         }
     } catch (error) {
-        console.error("Telegram user read error:", error);
+        console.error("Telegram initData read error:", error);
     }
-    return "guest";
+
+    return "";
 }
 
-const USER_ID = getTelegramUserId();
-const STORAGE_KEY = `dunkrise_profile_${USER_ID}`;
+function loadLocalCache() {
+    try {
+        const raw = localStorage.getItem(LOCAL_CACHE_KEY);
+        if (!raw) {
+            return null;
+        }
+
+        const parsed = JSON.parse(raw);
+
+        return {
+            bestScore: Number(parsed.bestScore || 0),
+            stars: Number(parsed.stars || 0),
+            ownedSkins: Array.isArray(parsed.ownedSkins) && parsed.ownedSkins.length > 0
+                ? parsed.ownedSkins
+                : [0],
+            currentSkin: Number(parsed.currentSkin || 0)
+        };
+    } catch (error) {
+        console.error("Local cache load error:", error);
+        return null;
+    }
+}
+
+function saveLocalCache(profile) {
+    try {
+        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(profile));
+    } catch (error) {
+        console.error("Local cache save error:", error);
+    }
+}
+
+async function fetchProfileFromServer() {
+    const initDataRaw = getTelegramInitDataRaw();
+
+    if (!initDataRaw) {
+        return null;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/profile`, {
+        method: "GET",
+        headers: {
+            Authorization: `tma ${initDataRaw}`
+        }
+    });
+
+    if (!response.ok) {
+        throw new Error(`Profile fetch failed: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.profile;
+}
+
+async function saveProfileToServer(profile) {
+    const initDataRaw = getTelegramInitDataRaw();
+
+    if (!initDataRaw) {
+        return;
+    }
+
+    const response = await fetch(`${API_BASE_URL}/api/profile`, {
+        method: "PUT",
+        headers: {
+            "Content-Type": "application/json",
+            Authorization: `tma ${initDataRaw}`
+        },
+        body: JSON.stringify({ profile })
+    });
+
+    if (!response.ok) {
+        throw new Error(`Profile save failed: ${response.status}`);
+    }
+
+    return response.json();
+}
 
 const skins = [
     { id: 0, name: "Classic", price: 0, color: "#ffae00", glow: "#ff9a00" },
@@ -49,53 +125,110 @@ function getDefaultProfile() {
     };
 }
 
-function loadProfile() {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) {
-            return getDefaultProfile();
-        }
-
-        const parsed = JSON.parse(raw);
-
-        return {
-            bestScore: Number(parsed.bestScore || 0),
-            stars: Number(parsed.stars || 0),
-            ownedSkins: Array.isArray(parsed.ownedSkins) && parsed.ownedSkins.length > 0
-                ? parsed.ownedSkins
-                : [0],
-            currentSkin: Number(parsed.currentSkin || 0)
-        };
-    } catch (error) {
-        console.error("Profile load error:", error);
-        return getDefaultProfile();
-    }
-}
-
-let profile = loadProfile();
+let profile = getDefaultProfile();
 
 let score = 0;
-let stars = profile.stars;
-let bestScore = profile.bestScore;
+let stars = 0;
+let bestScore = 0;
 let combo = 0;
-let ownedSkins = profile.ownedSkins;
-let currentSkin = profile.currentSkin;
+let ownedSkins = [0];
+let currentSkin = 0;
 
-function saveProfile() {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+function applyProfile(newProfile) {
+    profile = {
+        bestScore: Number(newProfile.bestScore || 0),
+        stars: Number(newProfile.stars || 0),
+        ownedSkins: Array.isArray(newProfile.ownedSkins) && newProfile.ownedSkins.length > 0
+            ? [...new Set(newProfile.ownedSkins.map(Number))]
+            : [0],
+        currentSkin: Number(newProfile.currentSkin || 0)
+    };
+
+    if (!profile.ownedSkins.includes(0)) {
+        profile.ownedSkins.unshift(0);
+    }
+
+    if (!profile.ownedSkins.includes(profile.currentSkin)) {
+        profile.currentSkin = 0;
+    }
+
+    stars = profile.stars;
+    bestScore = profile.bestScore;
+    ownedSkins = profile.ownedSkins;
+    currentSkin = profile.currentSkin;
+}
+
+function collectCurrentProfile() {
+    return {
         bestScore,
         stars,
         ownedSkins,
         currentSkin
-    }));
+    };
 }
+
+let saveTimer = null;
+let profileLoaded = false;
+
+async function syncProfileSave() {
+    const currentProfile = collectCurrentProfile();
+    saveLocalCache(currentProfile);
+
+    try {
+        await saveProfileToServer(currentProfile);
+    } catch (error) {
+        console.error("Remote save error:", error);
+    }
+}
+
+function queueProfileSave() {
+    if (!profileLoaded) {
+        return;
+    }
+
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+        syncProfileSave();
+    }, 250);
+}
+
+async function initProfile() {
+    const localProfile = loadLocalCache();
+
+    try {
+        const remoteProfile = await fetchProfileFromServer();
+
+        if (remoteProfile) {
+            applyProfile(remoteProfile);
+            saveLocalCache(remoteProfile);
+        } else if (localProfile) {
+            applyProfile(localProfile);
+        } else {
+            applyProfile(getDefaultProfile());
+        }
+    } catch (error) {
+        console.error("Profile init error:", error);
+
+        if (localProfile) {
+            applyProfile(localProfile);
+        } else {
+            applyProfile(getDefaultProfile());
+        }
+    }
+
+    profileLoaded = true;
+    updateUI();
+    renderShop();
+}
+
 
 function updateUI() {
     centerScoreEl.textContent = score;
     starsEl.textContent = stars;
     bestScoreEl.textContent = bestScore;
     comboTextEl.textContent = combo > 1 ? `COMBO x${combo}` : "";
-    saveProfile();
+
+    queueProfileSave();
 }
 
 const gravity = 0.34;
@@ -691,15 +824,24 @@ window.addEventListener("touchend", () => {
     endDrag();
 }, { passive: true });
 
-restartBtn.addEventListener("click", () => {
-    localStorage.removeItem(STORAGE_KEY);
-    profile = loadProfile();
-    stars = profile.stars;
-    bestScore = profile.bestScore;
-    ownedSkins = profile.ownedSkins;
-    currentSkin = profile.currentSkin;
+restartBtn.addEventListener("click", async () => {
+    const freshProfile = getDefaultProfile();
+
+    applyProfile(freshProfile);
+    score = 0;
+    combo = 0;
+
+    saveLocalCache(freshProfile);
+
+    try {
+        await saveProfileToServer(freshProfile);
+    } catch (error) {
+        console.error("Profile reset sync error:", error);
+    }
+
     resetGame();
     renderShop();
+    updateUI();
 });
 
 homeBtn.addEventListener("click", resetGame);
@@ -748,7 +890,6 @@ function loop() {
 
 updateLayout();
 updatePhysicsForScreen();
-updateUI();
 resetGame();
-renderShop();
+initProfile();
 loop();
