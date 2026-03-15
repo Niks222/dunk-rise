@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta charset="UTF-8">
+
+<script src="https://telegram.org/js/telegram-web-app.js"></script>
+
+<style>
+
+body{
+margin:0;
+background:#1e1e1e;
+color:white;
+font-family:sans-serif;
+}
+
+#ui{
+
+position:absolute;
+top:20px;
+width:100%;
+display:flex;
+justify-content:space-around;
+font-size:28px;
+
+}
+
+canvas{
+background:#2b2b2b;
+}
+
+</style>
+
+</head>
+
+<body>
+
+<div id="ui">
+
+<div id="score">0</div>
+<div id="stars">⭐ 0</div>
+
+</div>
+
+<canvas id="game"></canvas>
+
+<script src="game.js"></script>
+
+</body>
+</html>
