@@ -98,17 +98,31 @@ function updateUI() {
     saveProfile();
 }
 
-const gravity = 0.38;
-const air = 0.995;
-const dragPower = 0.12;
-const maxDrag = 140;
+const gravity = 0.34;
+const air = 0.997;
+
+let dragPower = 0.20;
+let maxDrag = 190;
+let wallBounce = 0.82;
+
+function updatePhysicsForScreen() {
+    if (window.innerHeight < 760) {
+        dragPower = 0.23;
+        maxDrag = 210;
+        wallBounce = 0.84;
+    } else {
+        dragPower = 0.20;
+        maxDrag = 190;
+        wallBounce = 0.82;
+    }
+}
 
 const assist = {
     enabled: true,
-    radiusX: 42,
-    radiusY: 52,
-    strengthX: 0.10,
-    strengthY: 0.035,
+    radiusX: 38,
+    radiusY: 48,
+    strengthX: 0.085,
+    strengthY: 0.03,
     minDownSpeed: 0.8
 };
 
@@ -217,7 +231,7 @@ let isDragging = false;
 let dragPoint = { x: 0, y: 0 };
 
 function currentSkinData() {
-    return skins.find(s => s.id === currentSkin) || skins[0];
+    return skins.find((s) => s.id === currentSkin) || skins[0];
 }
 
 function resetBall() {
@@ -466,16 +480,22 @@ function updateBall() {
     ball.vy *= air;
     ball.rotation += ball.vx * 0.02;
 
+    if (ball.x - ball.radius <= 0) {
+        ball.x = ball.radius;
+        ball.vx = Math.abs(ball.vx) * wallBounce;
+    }
+
+    if (ball.x + ball.radius >= layout.width) {
+        ball.x = layout.width - ball.radius;
+        ball.vx = -Math.abs(ball.vx) * wallBounce;
+    }
+
     trail.push({ x: ball.x, y: ball.y });
     if (trail.length > 16) {
         trail.shift();
     }
 
-    if (
-        ball.y > layout.height + 80 ||
-        ball.x < -80 ||
-        ball.x > layout.width + 80
-    ) {
+    if (ball.y > layout.height + 80) {
         failRun();
     }
 }
@@ -536,8 +556,8 @@ function drawDragGuide() {
 
     for (let i = 0; i < 7; i++) {
         simVy += gravity;
-        simX += simVx * 4;
-        simY += simVy * 4;
+        simX += simVx * 5;
+        simY += simVy * 5;
 
         ctx.beginPath();
         ctx.arc(simX, simY, Math.max(2, 5 - i * 0.45), 0, Math.PI * 2);
@@ -586,7 +606,6 @@ function endDrag() {
 
     isDragging = false;
 
-    // Бросок разрешён только если тянем вверх
     if (clamped.dy > -10) return;
 
     ball.vx = clamped.dx * dragPower;
@@ -634,7 +653,7 @@ function buySkin(id) {
         return;
     }
 
-    const skin = skins.find(s => s.id === id);
+    const skin = skins.find((s) => s.id === id);
     if (!skin) return;
 
     if (stars >= skin.price) {
@@ -696,6 +715,7 @@ closeShopBtn.addEventListener("click", () => {
 
 function handleResize() {
     updateLayout();
+    updatePhysicsForScreen();
     resetGame();
     renderShop();
 }
@@ -727,6 +747,7 @@ function loop() {
 }
 
 updateLayout();
+updatePhysicsForScreen();
 updateUI();
 resetGame();
 renderShop();
