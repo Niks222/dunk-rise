@@ -20,6 +20,26 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
 
+if (typeof Telegram !== "undefined" && Telegram.WebApp) {
+    Telegram.WebApp.ready();
+    Telegram.WebApp.expand();
+}
+
+function getTelegramUserId() {
+    try {
+        const user = Telegram.WebApp.initDataUnsafe.user;
+        if (user && user.id) {
+            return String(user.id);
+        }
+    } catch (error) {
+        console.error("Telegram user read error:", error);
+    }
+    return "guest";
+}
+
+const USER_ID = getTelegramUserId();
+const STORAGE_KEY = `dunkrise_profile_${USER_ID}`;
+
 const skins = [
     { id: 0, name: "Classic", price: 0, color: "#ffae00", glow: "#ff9a00" },
     { id: 1, name: "Fire", price: 50, color: "#ff5b1f", glow: "#ff6f3c" },
@@ -27,14 +47,55 @@ const skins = [
     { id: 3, name: "Pink", price: 200, color: "#ff57c7", glow: "#ff85da" }
 ];
 
-let ownedSkins = JSON.parse(localStorage.getItem("ownedSkins") || "[0]");
-let currentSkin = Number(localStorage.getItem("currentSkin") || 0);
+function getDefaultProfile() {
+    return {
+        bestScore: 0,
+        stars: 0,
+        ownedSkins: [0],
+        currentSkin: 0
+    };
+}
 
-// ВАЖНО: стартовые значения теперь нормальные
+function loadProfile() {
+    try {
+        const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+            return getDefaultProfile();
+        }
+
+        const parsed = JSON.parse(raw);
+
+        return {
+            bestScore: Number(parsed.bestScore || 0),
+            stars: Number(parsed.stars || 0),
+            ownedSkins: Array.isArray(parsed.ownedSkins) && parsed.ownedSkins.length > 0 ? parsed.ownedSkins : [0],
+            currentSkin: Number(parsed.currentSkin || 0)
+        };
+    } catch (error) {
+        console.error("Profile load error:", error);
+        return getDefaultProfile();
+    }
+}
+
+function saveProfile() {
+    const profile = {
+        bestScore,
+        stars,
+        ownedSkins,
+        currentSkin
+    };
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
+}
+
+let profile = loadProfile();
+
 let score = 0;
-let stars = 0;
-let bestScore = Number(localStorage.getItem("bestScore") || 0);
+let stars = profile.stars;
+let bestScore = profile.bestScore;
 let combo = 0;
+let ownedSkins = profile.ownedSkins;
+let currentSkin = profile.currentSkin;
 
 const gravity = 0.34;
 const damping = 0.995;
@@ -61,7 +122,6 @@ let trail = [];
 let particles = [];
 let scoreFlash = 0;
 
-// Состояния попытки
 let isAiming = true;
 let isFlying = false;
 let canShoot = true;
@@ -80,9 +140,7 @@ function updateUI() {
     bestScoreEl.textContent = bestScore;
     comboTextEl.textContent = combo > 1 ? `COMBO x${combo}` : "";
 
-    localStorage.setItem("bestScore", String(bestScore));
-    localStorage.setItem("currentSkin", String(currentSkin));
-    localStorage.setItem("ownedSkins", JSON.stringify(ownedSkins));
+    saveProfile();
 }
 
 function resetBallForNewShot() {
@@ -110,7 +168,18 @@ function resetHoop() {
 
 function resetGame() {
     score = 0;
-    stars = 0;
+    combo = 0;
+    cameraOffsetY = 0;
+    particles = [];
+    scoreFlash = 0;
+
+    resetHoop();
+    resetBallForNewShot();
+    updateUI();
+}
+
+function failRun() {
+    score = 0;
     combo = 0;
     cameraOffsetY = 0;
     particles = [];
@@ -273,13 +342,8 @@ function updateBall() {
         trail.shift();
     }
 
-    // Попытка закончилась — мяч ушёл вниз
     if (ball.y - cameraOffsetY > canvas.height + 80) {
-        if (!scoredThisShot) {
-            combo = 0;
-            updateUI();
-        }
-        resetBallForNewShot();
+        failRun();
     }
 }
 
@@ -292,7 +356,6 @@ function checkScore() {
         ball.x > hoop.x - hoop.width / 2 &&
         ball.x < hoop.x + hoop.width / 2;
 
-    // Попадание при проходе через кольцо сверху вниз
     const crossingDown =
         ball.vy > 0 &&
         ball.y > hoopTop - 10 &&
@@ -368,7 +431,6 @@ function startShot(targetX, targetY) {
     const dx = targetX - ball.x;
     const dy = targetY - ball.y;
 
-    // Не даём стрелять вниз
     if (dy > -20) return;
 
     ball.vx = dx * 0.032;
@@ -468,14 +530,20 @@ canvas.addEventListener("touchmove", (e) => {
     pointerMove(t.clientX, t.clientY);
 }, { passive: true });
 
-canvas.addEventListener("touchend", (e) => {
+canvas.addEventListener("touchend", () => {
     if (!canShoot || isFlying) return;
     pointerUp(aimTarget.x, aimTarget.y - cameraOffsetY);
 }, { passive: true });
 
 restartBtn.addEventListener("click", () => {
-    localStorage.removeItem("bestScore");
+    localStorage.removeItem(STORAGE_KEY);
+    profile = loadProfile();
+    stars = profile.stars;
+    bestScore = profile.bestScore;
+    ownedSkins = profile.ownedSkins;
+    currentSkin = profile.currentSkin;
     resetGame();
+    renderShop();
 });
 
 homeBtn.addEventListener("click", resetGame);
