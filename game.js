@@ -20,11 +20,6 @@ function resizeCanvas() {
 resizeCanvas();
 window.addEventListener("resize", resizeCanvas);
 
-let score = 0;
-let bestScore = Number(localStorage.getItem("bestScore") || 244);
-let stars = Number(localStorage.getItem("stars") || 930);
-let combo = 0;
-
 const skins = [
     { id: 0, name: "Classic", price: 0, color: "#ffae00", glow: "#ff9a00" },
     { id: 1, name: "Fire", price: 50, color: "#ff5b1f", glow: "#ff6f3c" },
@@ -34,6 +29,15 @@ const skins = [
 
 let ownedSkins = JSON.parse(localStorage.getItem("ownedSkins") || "[0]");
 let currentSkin = Number(localStorage.getItem("currentSkin") || 0);
+
+// ВАЖНО: стартовые значения теперь нормальные
+let score = 0;
+let stars = 0;
+let bestScore = Number(localStorage.getItem("bestScore") || 0);
+let combo = 0;
+
+const gravity = 0.34;
+const damping = 0.995;
 
 const ball = {
     x: 0,
@@ -50,15 +54,21 @@ const hoop = {
     width: 110,
     rimHeight: 12,
     moveDir: 1,
-    speed: 1.55
+    speed: 1.45
 };
 
 let trail = [];
 let particles = [];
 let scoreFlash = 0;
-let shotActive = false;
-let scoreLock = false;
+
+// Состояния попытки
+let isAiming = true;
+let isFlying = false;
+let canShoot = true;
+let scoredThisShot = false;
+
 let cameraOffsetY = 0;
+let aimTarget = { x: 0, y: 0 };
 
 function currentSkinData() {
     return skins.find(s => s.id === currentSkin) || skins[0];
@@ -70,21 +80,26 @@ function updateUI() {
     bestScoreEl.textContent = bestScore;
     comboTextEl.textContent = combo > 1 ? `COMBO x${combo}` : "";
 
-    localStorage.setItem("stars", String(stars));
     localStorage.setItem("bestScore", String(bestScore));
     localStorage.setItem("currentSkin", String(currentSkin));
     localStorage.setItem("ownedSkins", JSON.stringify(ownedSkins));
 }
 
-function resetBall() {
+function resetBallForNewShot() {
     ball.x = canvas.width * 0.52;
     ball.y = canvas.height - 135 + cameraOffsetY;
     ball.vx = 0;
     ball.vy = 0;
     ball.rotation = 0;
+
     trail = [];
-    shotActive = false;
-    scoreLock = false;
+    scoredThisShot = false;
+    isAiming = true;
+    isFlying = false;
+    canShoot = true;
+
+    aimTarget.x = ball.x - 90;
+    aimTarget.y = ball.y - 180;
 }
 
 function resetHoop() {
@@ -95,13 +110,15 @@ function resetHoop() {
 
 function resetGame() {
     score = 0;
+    stars = 0;
     combo = 0;
     cameraOffsetY = 0;
     particles = [];
     scoreFlash = 0;
-    updateUI();
-    resetBall();
+
     resetHoop();
+    resetBallForNewShot();
+    updateUI();
 }
 
 function renderBackgroundGlow() {
@@ -173,7 +190,6 @@ function drawBall() {
     ctx.shadowBlur = 0;
     ctx.strokeStyle = "rgba(120,50,0,0.5)";
     ctx.lineWidth = 1.5;
-
     ctx.beginPath();
     ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
     ctx.stroke();
@@ -242,14 +258,14 @@ function updateHoop() {
 }
 
 function updateBall() {
-    if (!shotActive) return;
+    if (!isFlying) return;
 
-    ball.vy += 0.34;
+    ball.vy += gravity;
     ball.x += ball.vx;
     ball.y += ball.vy;
 
-    ball.vx *= 0.995;
-    ball.vy *= 0.995;
+    ball.vx *= damping;
+    ball.vy *= damping;
     ball.rotation += ball.vx * 0.02;
 
     trail.push({ x: ball.x, y: ball.y });
@@ -257,25 +273,39 @@ function updateBall() {
         trail.shift();
     }
 
-    if (ball.y - cameraOffsetY > canvas.height + 70) {
-        combo = 0;
-        updateUI();
-        resetBall();
+    // Попытка закончилась — мяч ушёл вниз
+    if (ball.y - cameraOffsetY > canvas.height + 80) {
+        if (!scoredThisShot) {
+            combo = 0;
+            updateUI();
+        }
+        resetBallForNewShot();
     }
 }
 
 function checkScore() {
-    if (scoreLock) return;
+    if (scoredThisShot) return;
 
     const hoopTop = hoop.y;
-    const withinX = ball.x > hoop.x - hoop.width / 2 && ball.x < hoop.x + hoop.width / 2;
-    const enteringHoop = ball.vy < 0 && ball.y < hoopTop + 10 && ball.y > hoopTop - 26;
 
-    if (withinX && enteringHoop) {
-        scoreLock = true;
+    const withinX =
+        ball.x > hoop.x - hoop.width / 2 &&
+        ball.x < hoop.x + hoop.width / 2;
+
+    // Попадание при проходе через кольцо сверху вниз
+    const crossingDown =
+        ball.vy > 0 &&
+        ball.y > hoopTop - 10 &&
+        ball.y < hoopTop + 22;
+
+    if (withinX && crossingDown) {
+        scoredThisShot = true;
+        isFlying = false;
+        canShoot = false;
+
         combo += 1;
-        score += combo;
-        stars += 5;
+        score += 1;
+        stars += 1;
         scoreFlash = 12;
 
         if (score > bestScore) {
@@ -290,24 +320,32 @@ function checkScore() {
         updateUI();
 
         setTimeout(() => {
-            scoreLock = false;
-        }, 250);
+            resetBallForNewShot();
+        }, 350);
     }
 }
 
 function drawAimDots() {
-    if (shotActive || trail.length > 0) return;
+    if (!isAiming || !canShoot) return;
 
-    const dots = 6;
-    for (let i = 0; i < dots; i++) {
-        const t = i / dots;
-        const x = ball.x - 60 - i * 6;
-        const y = ball.y - cameraOffsetY - 30 - i * 22;
+    const dx = aimTarget.x - ball.x;
+    const dy = aimTarget.y - ball.y;
+
+    let vx = dx * 0.032;
+    let vy = dy * 0.032;
+
+    let px = ball.x;
+    let py = ball.y;
+
+    for (let i = 0; i < 7; i++) {
+        vy += gravity;
+        px += vx * 6;
+        py += vy * 6;
 
         ctx.beginPath();
-        ctx.arc(x, y, 2 + (1 - t) * 2, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(255,120,80,${0.2 + (1 - t) * 0.5})`;
-        ctx.shadowColor = "rgba(255,120,80,0.5)";
+        ctx.arc(px, py - cameraOffsetY, Math.max(2, 5 - i * 0.45), 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,120,80,${0.75 - i * 0.09})`;
+        ctx.shadowColor = "rgba(255,120,80,0.45)";
         ctx.shadowBlur = 8;
         ctx.fill();
     }
@@ -324,13 +362,21 @@ function updateCenterScoreEffect() {
     }
 }
 
-function shootTo(targetX, targetY) {
+function startShot(targetX, targetY) {
+    if (!canShoot || isFlying) return;
+
     const dx = targetX - ball.x;
     const dy = targetY - ball.y;
 
+    // Не даём стрелять вниз
+    if (dy > -20) return;
+
     ball.vx = dx * 0.032;
     ball.vy = dy * 0.032;
-    shotActive = true;
+
+    isAiming = false;
+    isFlying = true;
+    canShoot = false;
 }
 
 function renderShop() {
@@ -383,6 +429,66 @@ function buySkin(id) {
     }
 }
 
+function pointerDown(clientX, clientY) {
+    if (!canShoot || isFlying) return;
+    aimTarget.x = clientX;
+    aimTarget.y = clientY + cameraOffsetY;
+}
+
+function pointerMove(clientX, clientY) {
+    if (!canShoot || isFlying) return;
+    aimTarget.x = clientX;
+    aimTarget.y = clientY + cameraOffsetY;
+}
+
+function pointerUp(clientX, clientY) {
+    if (!canShoot || isFlying) return;
+    startShot(clientX, clientY + cameraOffsetY);
+}
+
+canvas.addEventListener("mousedown", (e) => {
+    pointerDown(e.clientX, e.clientY);
+});
+
+canvas.addEventListener("mousemove", (e) => {
+    pointerMove(e.clientX, e.clientY);
+});
+
+canvas.addEventListener("mouseup", (e) => {
+    pointerUp(e.clientX, e.clientY);
+});
+
+canvas.addEventListener("touchstart", (e) => {
+    const t = e.touches[0];
+    pointerDown(t.clientX, t.clientY);
+}, { passive: true });
+
+canvas.addEventListener("touchmove", (e) => {
+    const t = e.touches[0];
+    pointerMove(t.clientX, t.clientY);
+}, { passive: true });
+
+canvas.addEventListener("touchend", (e) => {
+    if (!canShoot || isFlying) return;
+    pointerUp(aimTarget.x, aimTarget.y - cameraOffsetY);
+}, { passive: true });
+
+restartBtn.addEventListener("click", () => {
+    localStorage.removeItem("bestScore");
+    resetGame();
+});
+
+homeBtn.addEventListener("click", resetGame);
+
+shopBtn.addEventListener("click", () => {
+    renderShop();
+    shopModal.classList.remove("hidden");
+});
+
+closeShopBtn.addEventListener("click", () => {
+    shopModal.classList.add("hidden");
+});
+
 function loop() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -402,30 +508,6 @@ function loop() {
 
     requestAnimationFrame(loop);
 }
-
-canvas.addEventListener("click", (e) => {
-    shootTo(e.clientX, e.clientY + cameraOffsetY);
-});
-
-canvas.addEventListener("touchstart", (e) => {
-    const touch = e.touches[0];
-    shootTo(touch.clientX, touch.clientY + cameraOffsetY);
-}, { passive: true });
-
-restartBtn.addEventListener("click", resetGame);
-
-homeBtn.addEventListener("click", () => {
-    resetGame();
-});
-
-shopBtn.addEventListener("click", () => {
-    renderShop();
-    shopModal.classList.remove("hidden");
-});
-
-closeShopBtn.addEventListener("click", () => {
-    shopModal.classList.add("hidden");
-});
 
 updateUI();
 resetGame();
