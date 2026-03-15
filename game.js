@@ -28,9 +28,7 @@ if (typeof Telegram !== "undefined" && Telegram.WebApp) {
 function getTelegramUserId() {
     try {
         const user = Telegram.WebApp.initDataUnsafe.user;
-        if (user && user.id) {
-            return String(user.id);
-        }
+        if (user && user.id) return String(user.id);
     } catch (error) {
         console.error("Telegram user read error:", error);
     }
@@ -59,12 +57,9 @@ function getDefaultProfile() {
 function loadProfile() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) {
-            return getDefaultProfile();
-        }
+        if (!raw) return getDefaultProfile();
 
         const parsed = JSON.parse(raw);
-
         return {
             bestScore: Number(parsed.bestScore || 0),
             stars: Number(parsed.stars || 0),
@@ -77,17 +72,6 @@ function loadProfile() {
     }
 }
 
-function saveProfile() {
-    const profile = {
-        bestScore,
-        stars,
-        ownedSkins,
-        currentSkin
-    };
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
-}
-
 let profile = loadProfile();
 
 let score = 0;
@@ -97,8 +81,37 @@ let combo = 0;
 let ownedSkins = profile.ownedSkins;
 let currentSkin = profile.currentSkin;
 
-const gravity = 0.34;
-const damping = 0.995;
+function saveProfile() {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+        bestScore,
+        stars,
+        ownedSkins,
+        currentSkin
+    }));
+}
+
+function updateUI() {
+    centerScoreEl.textContent = score;
+    starsEl.textContent = stars;
+    bestScoreEl.textContent = bestScore;
+    comboTextEl.textContent = combo > 1 ? `COMBO x${combo}` : "";
+    saveProfile();
+}
+
+const gravity = 0.38;
+const air = 0.995;
+const dragPower = 0.12;
+const maxDrag = 140;
+
+// Мягкий assist: не чит, а небольшая помощь рядом с кольцом
+const assist = {
+    enabled: true,
+    radiusX: 42,          // горизонтальная зона помощи
+    radiusY: 52,          // вертикальная зона помощи
+    strengthX: 0.10,      // насколько подруливать по X
+    strengthY: 0.035,     // насколько подруливать по Y
+    minDownSpeed: 0.8     // помощь только когда мяч реально идёт вниз
+};
 
 const ball = {
     x: 0,
@@ -115,79 +128,96 @@ const hoop = {
     width: 110,
     rimHeight: 12,
     moveDir: 1,
-    speed: 1.45
+    speed: 1.35
 };
 
 let trail = [];
 let particles = [];
 let scoreFlash = 0;
 
-let isAiming = true;
 let isFlying = false;
 let canShoot = true;
 let scoredThisShot = false;
 
-let cameraOffsetY = 0;
-let aimTarget = { x: 0, y: 0 };
+let isDragging = false;
+let dragPoint = { x: 0, y: 0 };
 
 function currentSkinData() {
     return skins.find(s => s.id === currentSkin) || skins[0];
 }
 
-function updateUI() {
-    centerScoreEl.textContent = score;
-    starsEl.textContent = stars;
-    bestScoreEl.textContent = bestScore;
-    comboTextEl.textContent = combo > 1 ? `COMBO x${combo}` : "";
-
-    saveProfile();
+function distance(ax, ay, bx, by) {
+    const dx = ax - bx;
+    const dy = ay - by;
+    return Math.hypot(dx, dy);
 }
 
-function resetBallForNewShot() {
-    ball.x = canvas.width * 0.52;
-    ball.y = canvas.height - 135 + cameraOffsetY;
+function clampVector(dx, dy, maxLen) {
+    const len = Math.hypot(dx, dy);
+    if (len <= maxLen || len === 0) {
+        return { dx, dy };
+    }
+    const scale = maxLen / len;
+    return {
+        dx: dx * scale,
+        dy: dy * scale
+    };
+}
+
+function resetBall() {
+    ball.x = canvas.width * 0.5;
+    ball.y = canvas.height - 155;
     ball.vx = 0;
     ball.vy = 0;
     ball.rotation = 0;
 
     trail = [];
     scoredThisShot = false;
-    isAiming = true;
     isFlying = false;
     canShoot = true;
+    isDragging = false;
 
-    aimTarget.x = ball.x - 90;
-    aimTarget.y = ball.y - 180;
+    dragPoint.x = ball.x;
+    dragPoint.y = ball.y;
+}
+
+function placeHoopForLevel() {
+    hoop.y = canvas.height * 0.34;
+    hoop.x = Math.max(80, Math.min(canvas.width - 80, hoop.x));
 }
 
 function resetHoop() {
-    hoop.x = canvas.width * 0.17;
-    hoop.y = canvas.height * 0.36 + cameraOffsetY;
+    hoop.x = canvas.width * 0.22;
     hoop.moveDir = 1;
+    placeHoopForLevel();
 }
 
 function resetGame() {
     score = 0;
     combo = 0;
-    cameraOffsetY = 0;
     particles = [];
     scoreFlash = 0;
 
     resetHoop();
-    resetBallForNewShot();
+    resetBall();
     updateUI();
 }
 
 function failRun() {
     score = 0;
     combo = 0;
-    cameraOffsetY = 0;
     particles = [];
     scoreFlash = 0;
 
     resetHoop();
-    resetBallForNewShot();
+    resetBall();
     updateUI();
+}
+
+function nextLevel() {
+    hoop.x = Math.random() * (canvas.width - 160) + 80;
+    placeHoopForLevel();
+    resetBall();
 }
 
 function renderBackgroundGlow() {
@@ -196,8 +226,8 @@ function renderBackgroundGlow() {
         canvas.height * 0.2,
         20,
         canvas.width / 2,
-        canvas.height * 0.2,
-        canvas.height * 0.7
+        canvas.height * 0.55,
+        canvas.height * 0.75
     );
     glow.addColorStop(0, "rgba(255,255,255,0.07)");
     glow.addColorStop(1, "rgba(255,255,255,0)");
@@ -206,7 +236,7 @@ function renderBackgroundGlow() {
 }
 
 function drawHoop() {
-    const y = hoop.y - cameraOffsetY;
+    const y = hoop.y;
 
     ctx.save();
 
@@ -241,7 +271,7 @@ function drawBall() {
     const skin = currentSkinData();
 
     ctx.save();
-    ctx.translate(ball.x, ball.y - cameraOffsetY);
+    ctx.translate(ball.x, ball.y);
     ctx.rotate(ball.rotation);
 
     const grad = ctx.createRadialGradient(-6, -6, 2, 0, 0, ball.radius + 7);
@@ -272,7 +302,7 @@ function drawTrail() {
         const alpha = i / trail.length;
 
         ctx.beginPath();
-        ctx.arc(p.x, p.y - cameraOffsetY, 4, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, 4, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255,110,70,${alpha})`;
         ctx.shadowColor = "rgba(255,120,80,0.45)";
         ctx.shadowBlur = 10;
@@ -310,7 +340,7 @@ function updateParticles() {
 function drawParticles() {
     for (const p of particles) {
         ctx.beginPath();
-        ctx.arc(p.x, p.y - cameraOffsetY, p.size, 0, Math.PI * 2);
+        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255,185,60,${p.life / 44})`;
         ctx.shadowColor = "#ffb347";
         ctx.shadowBlur = 12;
@@ -326,23 +356,48 @@ function updateHoop() {
     }
 }
 
+function applyAimAssist() {
+    if (!assist.enabled || !isFlying || scoredThisShot) return;
+    if (ball.vy < assist.minDownSpeed) return;
+
+    const rimX = hoop.x;
+    const rimY = hoop.y + 6;
+
+    const dx = rimX - ball.x;
+    const dy = rimY - ball.y;
+
+    if (Math.abs(dx) > assist.radiusX) return;
+    if (Math.abs(dy) > assist.radiusY) return;
+    if (ball.y < hoop.y - 40) return; // слишком высоко — не помогаем
+    if (ball.y > hoop.y + 55) return; // слишком низко — поздно
+
+    // Чем ближе, тем сильнее помощь
+    const factorX = 1 - Math.abs(dx) / assist.radiusX;
+    const factorY = 1 - Math.abs(dy) / assist.radiusY;
+
+    ball.vx += dx * assist.strengthX * factorX;
+    ball.vy += dy * assist.strengthY * factorY;
+}
+
 function updateBall() {
     if (!isFlying) return;
 
     ball.vy += gravity;
+    applyAimAssist();
+
     ball.x += ball.vx;
     ball.y += ball.vy;
 
-    ball.vx *= damping;
-    ball.vy *= damping;
+    ball.vx *= air;
+    ball.vy *= air;
     ball.rotation += ball.vx * 0.02;
 
     trail.push({ x: ball.x, y: ball.y });
-    if (trail.length > 15) {
+    if (trail.length > 16) {
         trail.shift();
     }
 
-    if (ball.y - cameraOffsetY > canvas.height + 80) {
+    if (ball.y > canvas.height + 80 || ball.x < -80 || ball.x > canvas.width + 80) {
         failRun();
     }
 }
@@ -350,16 +405,9 @@ function updateBall() {
 function checkScore() {
     if (scoredThisShot) return;
 
-    const hoopTop = hoop.y;
-
-    const withinX =
-        ball.x > hoop.x - hoop.width / 2 &&
-        ball.x < hoop.x + hoop.width / 2;
-
-    const crossingDown =
-        ball.vy > 0 &&
-        ball.y > hoopTop - 10 &&
-        ball.y < hoopTop + 22;
+    const rimY = hoop.y;
+    const withinX = ball.x > hoop.x - hoop.width / 2 && ball.x < hoop.x + hoop.width / 2;
+    const crossingDown = ball.vy > 0 && ball.y > rimY - 8 && ball.y < rimY + 22;
 
     if (withinX && crossingDown) {
         scoredThisShot = true;
@@ -376,42 +424,52 @@ function checkScore() {
         }
 
         spawnParticles(hoop.x, hoop.y + 4);
-
-        hoop.y -= 135;
-        cameraOffsetY += 110;
-
         updateUI();
 
         setTimeout(() => {
-            resetBallForNewShot();
-        }, 350);
+            nextLevel();
+        }, 260);
     }
 }
 
-function drawAimDots() {
-    if (!isAiming || !canShoot) return;
+function drawDragGuide() {
+    if (!isDragging || !canShoot || isFlying) return;
 
-    const dx = aimTarget.x - ball.x;
-    const dy = aimTarget.y - ball.y;
+    const dx = dragPoint.x - ball.x;
+    const dy = dragPoint.y - ball.y;
+    const clamped = clampVector(dx, dy, maxDrag);
 
-    let vx = dx * 0.032;
-    let vy = dy * 0.032;
+    const guideX = ball.x + clamped.dx;
+    const guideY = ball.y + clamped.dy;
 
-    let px = ball.x;
-    let py = ball.y;
+    ctx.save();
+
+    ctx.beginPath();
+    ctx.moveTo(ball.x, ball.y);
+    ctx.lineTo(guideX, guideY);
+    ctx.strokeStyle = "rgba(255,255,255,0.18)";
+    ctx.lineWidth = 4;
+    ctx.stroke();
+
+    let simX = ball.x;
+    let simY = ball.y;
+    let simVx = (-clamped.dx) * dragPower;
+    let simVy = (-clamped.dy) * dragPower;
 
     for (let i = 0; i < 7; i++) {
-        vy += gravity;
-        px += vx * 6;
-        py += vy * 6;
+        simVy += gravity;
+        simX += simVx * 4;
+        simY += simVy * 4;
 
         ctx.beginPath();
-        ctx.arc(px, py - cameraOffsetY, Math.max(2, 5 - i * 0.45), 0, Math.PI * 2);
+        ctx.arc(simX, simY, Math.max(2, 5 - i * 0.45), 0, Math.PI * 2);
         ctx.fillStyle = `rgba(255,120,80,${0.75 - i * 0.09})`;
         ctx.shadowColor = "rgba(255,120,80,0.45)";
         ctx.shadowBlur = 8;
         ctx.fill();
     }
+
+    ctx.restore();
 }
 
 function updateCenterScoreEffect() {
@@ -425,18 +483,37 @@ function updateCenterScoreEffect() {
     }
 }
 
-function startShot(targetX, targetY) {
+function startDrag(clientX, clientY) {
     if (!canShoot || isFlying) return;
 
-    const dx = targetX - ball.x;
-    const dy = targetY - ball.y;
+    if (distance(clientX, clientY, ball.x, ball.y) <= ball.radius + 28) {
+        isDragging = true;
+        dragPoint.x = clientX;
+        dragPoint.y = clientY;
+    }
+}
 
-    if (dy > -20) return;
+function moveDrag(clientX, clientY) {
+    if (!isDragging || !canShoot || isFlying) return;
+    dragPoint.x = clientX;
+    dragPoint.y = clientY;
+}
 
-    ball.vx = dx * 0.032;
-    ball.vy = dy * 0.032;
+function endDrag() {
+    if (!isDragging || !canShoot || isFlying) return;
 
-    isAiming = false;
+    const dx = dragPoint.x - ball.x;
+    const dy = dragPoint.y - ball.y;
+    const clamped = clampVector(dx, dy, maxDrag);
+
+    isDragging = false;
+
+    // Стрелять можно только если реально оттянул вверх от мяча
+    if (clamped.dy > -10) return;
+
+    ball.vx = (-clamped.dx) * dragPower;
+    ball.vy = (-clamped.dy) * dragPower;
+
     isFlying = true;
     canShoot = false;
 }
@@ -491,48 +568,30 @@ function buySkin(id) {
     }
 }
 
-function pointerDown(clientX, clientY) {
-    if (!canShoot || isFlying) return;
-    aimTarget.x = clientX;
-    aimTarget.y = clientY + cameraOffsetY;
-}
-
-function pointerMove(clientX, clientY) {
-    if (!canShoot || isFlying) return;
-    aimTarget.x = clientX;
-    aimTarget.y = clientY + cameraOffsetY;
-}
-
-function pointerUp(clientX, clientY) {
-    if (!canShoot || isFlying) return;
-    startShot(clientX, clientY + cameraOffsetY);
-}
-
 canvas.addEventListener("mousedown", (e) => {
-    pointerDown(e.clientX, e.clientY);
+    startDrag(e.clientX, e.clientY);
 });
 
 canvas.addEventListener("mousemove", (e) => {
-    pointerMove(e.clientX, e.clientY);
+    moveDrag(e.clientX, e.clientY);
 });
 
-canvas.addEventListener("mouseup", (e) => {
-    pointerUp(e.clientX, e.clientY);
+window.addEventListener("mouseup", () => {
+    endDrag();
 });
 
 canvas.addEventListener("touchstart", (e) => {
     const t = e.touches[0];
-    pointerDown(t.clientX, t.clientY);
+    startDrag(t.clientX, t.clientY);
 }, { passive: true });
 
 canvas.addEventListener("touchmove", (e) => {
     const t = e.touches[0];
-    pointerMove(t.clientX, t.clientY);
+    moveDrag(t.clientX, t.clientY);
 }, { passive: true });
 
-canvas.addEventListener("touchend", () => {
-    if (!canShoot || isFlying) return;
-    pointerUp(aimTarget.x, aimTarget.y - cameraOffsetY);
+window.addEventListener("touchend", () => {
+    endDrag();
 }, { passive: true });
 
 restartBtn.addEventListener("click", () => {
@@ -568,7 +627,7 @@ function loop() {
     updateParticles();
     updateCenterScoreEffect();
 
-    drawAimDots();
+    drawDragGuide();
     drawTrail();
     drawHoop();
     drawParticles();
