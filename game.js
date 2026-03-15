@@ -42,7 +42,7 @@ const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const db = getDatabase(firebaseApp);
 
-const BACKEND_BASE_URL = 'https://your-render-service.onrender.com';
+const BACKEND_BASE_URL = 'https://dunk-rise.onrender.com';
 const TELEGRAM_AUTH_URL = `${BACKEND_BASE_URL}/telegram-auth`;
 const ACTIVATE_REFERRAL_URL = `${BACKEND_BASE_URL}/activate-referral`;
 const LOCAL_CACHE_KEY = "dunkrise_profile_cache";
