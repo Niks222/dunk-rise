@@ -107,12 +107,12 @@ let wallBounce = 0.82;
 
 function updatePhysicsForScreen() {
     if (window.innerHeight < 760) {
-        dragPower = 0.23;
-        maxDrag = 210;
+        dragPower = 0.12;
+        maxDrag = 110;
         wallBounce = 0.84;
     } else {
-        dragPower = 0.20;
-        maxDrag = 190;
+        dragPower = 0.10;
+        maxDrag = 100;
         wallBounce = 0.82;
     }
 }
