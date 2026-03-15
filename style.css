@@ -95,7 +95,7 @@ html, body {
     top: 110px;
     left: 50%;
     transform: translateX(-50%);
-    z-index: 15;
+    z-index: 1;
     font-size: 106px;
     font-weight: 900;
     color: rgba(255,255,255,0.94);
