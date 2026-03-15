@@ -1,3 +1,15 @@
+import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-app.js';
+import {
+    getAuth,
+    signInWithCustomToken
+} from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-auth.js';
+import {
+    getDatabase,
+    ref,
+    get,
+    set
+} from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js';
+
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -18,7 +30,21 @@ if (typeof Telegram !== "undefined" && Telegram.WebApp) {
     Telegram.WebApp.expand();
 }
 
-const API_BASE_URL = "https://your-server-domain.com";
+const firebaseConfig = {
+    apiKey: 'AIzaSyDfhiqpjbKjTYR2QXsTLRvCd4L_UCl3EeI',
+    authDomain: 'dunk-rise-5c1f2.firebaseapp.com',
+    databaseURL: 'https://dunk-rise-5c1f2-default-rtdb.firebaseio.com',
+    projectId: 'dunk-rise-5c1f2',
+    appId: '1:19536474240:web:e20f78ca71f28a78123665'
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getDatabase(firebaseApp);
+
+const BACKEND_BASE_URL = 'https://your-render-service.onrender.com';
+const TELEGRAM_AUTH_URL = `${BACKEND_BASE_URL}/telegram-auth`;
+const ACTIVATE_REFERRAL_URL = `${BACKEND_BASE_URL}/activate-referral`;
 const LOCAL_CACHE_KEY = "dunkrise_profile_cache";
 
 function getTelegramInitDataRaw() {
@@ -48,7 +74,10 @@ function loadLocalCache() {
             ownedSkins: Array.isArray(parsed.ownedSkins) && parsed.ownedSkins.length > 0
                 ? parsed.ownedSkins
                 : [0],
-            currentSkin: Number(parsed.currentSkin || 0)
+            currentSkin: Number(parsed.currentSkin || 0),
+            updatedAt: Number(parsed.updatedAt || 0),
+            referredBy: parsed.referredBy || null,
+            referralRewardGiven: Boolean(parsed.referralRewardGiven)
         };
     } catch (error) {
         console.error("Local cache load error:", error);
@@ -64,49 +93,99 @@ function saveLocalCache(profile) {
     }
 }
 
-async function fetchProfileFromServer() {
+async function loginWithTelegram() {
     const initDataRaw = getTelegramInitDataRaw();
 
     if (!initDataRaw) {
-        return null;
+        throw new Error("Telegram initData is missing");
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/profile`, {
-        method: "GET",
+    const response = await fetch(TELEGRAM_AUTH_URL, {
+        method: "POST",
         headers: {
-            Authorization: `tma ${initDataRaw}`
-        }
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ initDataRaw })
     });
 
     if (!response.ok) {
-        throw new Error(`Profile fetch failed: ${response.status}`);
+        throw new Error(`Telegram auth failed: ${response.status}`);
     }
 
     const data = await response.json();
-    return data.profile;
+
+    if (!data.customToken || !data.uid) {
+        throw new Error("Invalid auth response");
+    }
+
+    await signInWithCustomToken(auth, data.customToken);
+    return data.uid;
 }
 
-async function saveProfileToServer(profile) {
+async function activateReferralIfNeeded() {
     const initDataRaw = getTelegramInitDataRaw();
 
     if (!initDataRaw) {
         return;
     }
 
-    const response = await fetch(`${API_BASE_URL}/api/profile`, {
-        method: "PUT",
-        headers: {
-            "Content-Type": "application/json",
-            Authorization: `tma ${initDataRaw}`
-        },
-        body: JSON.stringify({ profile })
-    });
+    try {
+        const response = await fetch(ACTIVATE_REFERRAL_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ initDataRaw })
+        });
 
-    if (!response.ok) {
-        throw new Error(`Profile save failed: ${response.status}`);
+        if (!response.ok) {
+            throw new Error(`Referral activation failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("Referral activation result:", data);
+    } catch (error) {
+        console.error("Referral activation error:", error);
+    }
+}
+
+async function fetchProfileFromFirebase(uid) {
+    const snapshot = await get(ref(db, `profiles/${uid}`));
+
+    if (!snapshot.exists()) {
+        return null;
     }
 
-    return response.json();
+    return snapshot.val();
+}
+
+async function saveProfileToFirebase(uid, profile) {
+    const safeOwnedSkins =
+        Array.isArray(profile.ownedSkins) && profile.ownedSkins.length > 0
+            ? [...new Set(profile.ownedSkins.map(Number))]
+            : [0];
+
+    if (!safeOwnedSkins.includes(0)) {
+        safeOwnedSkins.unshift(0);
+    }
+
+    let safeCurrentSkin = Number(profile.currentSkin || 0);
+    if (!safeOwnedSkins.includes(safeCurrentSkin)) {
+        safeCurrentSkin = 0;
+    }
+
+    const payload = {
+        bestScore: Number(profile.bestScore || 0),
+        stars: Number(profile.stars || 0),
+        ownedSkins: safeOwnedSkins,
+        currentSkin: safeCurrentSkin,
+        updatedAt: Date.now(),
+        referredBy: profile.referredBy || null,
+        referralRewardGiven: Boolean(profile.referralRewardGiven)
+    };
+
+    await set(ref(db, `profiles/${uid}`), payload);
+    return payload;
 }
 
 const skins = [
@@ -121,7 +200,10 @@ function getDefaultProfile() {
         bestScore: 0,
         stars: 0,
         ownedSkins: [0],
-        currentSkin: 0
+        currentSkin: 0,
+        updatedAt: 0,
+        referredBy: null,
+        referralRewardGiven: false
     };
 }
 
@@ -141,7 +223,10 @@ function applyProfile(newProfile) {
         ownedSkins: Array.isArray(newProfile.ownedSkins) && newProfile.ownedSkins.length > 0
             ? [...new Set(newProfile.ownedSkins.map(Number))]
             : [0],
-        currentSkin: Number(newProfile.currentSkin || 0)
+        currentSkin: Number(newProfile.currentSkin || 0),
+        updatedAt: Number(newProfile.updatedAt || 0),
+        referredBy: newProfile.referredBy || null,
+        referralRewardGiven: Boolean(newProfile.referralRewardGiven)
     };
 
     if (!profile.ownedSkins.includes(0)) {
@@ -163,7 +248,10 @@ function collectCurrentProfile() {
         bestScore,
         stars,
         ownedSkins,
-        currentSkin
+        currentSkin,
+        updatedAt: Date.now(),
+        referredBy: profile.referredBy || null,
+        referralRewardGiven: Boolean(profile.referralRewardGiven)
     };
 }
 
@@ -171,13 +259,19 @@ let saveTimer = null;
 let profileLoaded = false;
 
 async function syncProfileSave() {
+    if (!firebaseUid) {
+        return;
+    }
+
     const currentProfile = collectCurrentProfile();
     saveLocalCache(currentProfile);
 
     try {
-        await saveProfileToServer(currentProfile);
+        const saved = await saveProfileToFirebase(firebaseUid, currentProfile);
+        profile = saved;
+        saveLocalCache(saved);
     } catch (error) {
-        console.error("Remote save error:", error);
+        console.error("Firebase save error:", error);
     }
 }
 
@@ -196,15 +290,34 @@ async function initProfile() {
     const localProfile = loadLocalCache();
 
     try {
-        const remoteProfile = await fetchProfileFromServer();
+        firebaseUid = await loginWithTelegram();
 
-        if (remoteProfile) {
+        await activateReferralIfNeeded();
+
+        const remoteProfile = await fetchProfileFromFirebase(firebaseUid);
+
+        if (remoteProfile && localProfile) {
+            const remoteUpdated = Number(remoteProfile.updatedAt || 0);
+            const localUpdated = Number(localProfile.updatedAt || 0);
+
+            if (localUpdated > remoteUpdated) {
+                applyProfile(localProfile);
+                await saveProfileToFirebase(firebaseUid, localProfile);
+            } else {
+                applyProfile(remoteProfile);
+                saveLocalCache(remoteProfile);
+            }
+        } else if (remoteProfile) {
             applyProfile(remoteProfile);
             saveLocalCache(remoteProfile);
         } else if (localProfile) {
             applyProfile(localProfile);
+            await saveProfileToFirebase(firebaseUid, localProfile);
         } else {
-            applyProfile(getDefaultProfile());
+            const freshProfile = getDefaultProfile();
+            applyProfile(freshProfile);
+            await saveProfileToFirebase(firebaseUid, freshProfile);
+            saveLocalCache(freshProfile);
         }
     } catch (error) {
         console.error("Profile init error:", error);
@@ -834,7 +947,9 @@ restartBtn.addEventListener("click", async () => {
     saveLocalCache(freshProfile);
 
     try {
-        await saveProfileToServer(freshProfile);
+        if (firebaseUid) {
+            await saveProfileToFirebase(firebaseUid, freshProfile);
+        }
     } catch (error) {
         console.error("Profile reset sync error:", error);
     }
@@ -843,6 +958,26 @@ restartBtn.addEventListener("click", async () => {
     renderShop();
     updateUI();
 });
+
+function getReferralLink(uid) {
+    const telegramId = uid.replace("telegram_", "");
+    return `https://t.me/basketebalbot?startapp=ref_${telegramId}`;
+}
+
+async function copyReferralLink() {
+    if (!firebaseUid) {
+        return;
+    }
+
+    const link = getReferralLink(firebaseUid);
+
+    try {
+        await navigator.clipboard.writeText(link);
+        console.log("Referral link copied:", link);
+    } catch (error) {
+        console.error("Clipboard error:", error);
+    }
+}
 
 homeBtn.addEventListener("click", resetGame);
 
