@@ -1,51 +1,56 @@
 <!DOCTYPE html>
-<html>
+<html lang="ru">
 <head>
-
-<meta charset="UTF-8">
-
-<script src="https://telegram.org/js/telegram-web-app.js"></script>
-
-<style>
-
-body{
-margin:0;
-background:#1e1e1e;
-color:white;
-font-family:sans-serif;
-}
-
-#ui{
-
-position:absolute;
-top:20px;
-width:100%;
-display:flex;
-justify-content:space-around;
-font-size:28px;
-
-}
-
-canvas{
-background:#2b2b2b;
-}
-
-</style>
-
+    <meta charset="UTF-8">
+    <meta
+        name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+    >
+    <title>Dunk Rise</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="style.css">
 </head>
-
 <body>
+    <div id="app">
+        <div id="hud">
+            <div class="hud-left">
+                <button class="circle-btn" id="homeBtn">⌂</button>
 
-<div id="ui">
+                <div class="hud-stat trophy-stat">
+                    <span class="hud-icon">🏆</span>
+                    <span id="bestScore">244</span>
+                </div>
+            </div>
 
-<div id="score">0</div>
-<div id="stars">⭐ 0</div>
+            <div class="hud-right">
+                <div class="hud-stat stars-stat">
+                    <span class="hud-icon">⭐</span>
+                    <span id="stars">930</span>
+                </div>
 
-</div>
+                <button class="circle-btn" id="restartBtn">↻</button>
+            </div>
+        </div>
 
-<canvas id="game"></canvas>
+        <div id="centerScore">0</div>
 
-<script src="game.js"></script>
+        <canvas id="game"></canvas>
 
+        <div id="bottomLeft">
+            <button class="floating-btn" id="shopBtn">Skins</button>
+        </div>
+
+        <div id="comboText"></div>
+
+        <div id="shopModal" class="hidden">
+            <div class="modal-card">
+                <div class="modal-title">Skins</div>
+                <div id="skinsList"></div>
+                <button id="closeShopBtn" class="close-btn">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="game.js"></script>
 </body>
 </html>
