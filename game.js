@@ -21,7 +21,9 @@ if (typeof Telegram !== "undefined" && Telegram.WebApp) {
 function getTelegramUserId() {
     try {
         const user = Telegram.WebApp.initDataUnsafe.user;
-        if (user && user.id) return String(user.id);
+        if (user && user.id) {
+            return String(user.id);
+        }
     } catch (error) {
         console.error("Telegram user read error:", error);
     }
@@ -50,13 +52,18 @@ function getDefaultProfile() {
 function loadProfile() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) return getDefaultProfile();
+        if (!raw) {
+            return getDefaultProfile();
+        }
 
         const parsed = JSON.parse(raw);
+
         return {
             bestScore: Number(parsed.bestScore || 0),
             stars: Number(parsed.stars || 0),
-            ownedSkins: Array.isArray(parsed.ownedSkins) && parsed.ownedSkins.length > 0 ? parsed.ownedSkins : [0],
+            ownedSkins: Array.isArray(parsed.ownedSkins) && parsed.ownedSkins.length > 0
+                ? parsed.ownedSkins
+                : [0],
             currentSkin: Number(parsed.currentSkin || 0)
         };
     } catch (error) {
@@ -147,10 +154,7 @@ function updateLayout() {
     layout.safeLeft = Math.max(16, vp.width * 0.04);
     layout.safeRight = Math.max(16, vp.width * 0.04);
 
-    // Верхняя зона учитывает HUD + Telegram
     layout.safeTop = isSmallPhone ? 165 : 150;
-
-    // Нижняя зона под мяч и удобный drag
     layout.safeBottom = isSmallPhone ? 190 : 175;
 
     layout.hoopMinY = layout.safeTop + 40;
@@ -283,11 +287,7 @@ function failRun() {
 
 function nextLevel() {
     hoop.x = getRandomHoopX();
-
-    // На следующих уровнях кольцо остаётся в доступной верхней зоне
-    const nextY = clamp(layout.height * 0.30, layout.hoopMinY, layout.hoopMaxY);
-    hoop.y = nextY;
-
+    hoop.y = clamp(layout.height * 0.30, layout.hoopMinY, layout.hoopMaxY);
     resetBall();
 }
 
@@ -531,8 +531,8 @@ function drawDragGuide() {
 
     let simX = ball.x;
     let simY = ball.y;
-    let simVx = (-clamped.dx) * dragPower;
-    let simVy = (-clamped.dy) * dragPower;
+    let simVx = clamped.dx * dragPower;
+    let simVy = clamped.dy * dragPower;
 
     for (let i = 0; i < 7; i++) {
         simVy += gravity;
@@ -586,10 +586,11 @@ function endDrag() {
 
     isDragging = false;
 
+    // Бросок разрешён только если тянем вверх
     if (clamped.dy > -10) return;
 
-    ball.vx = (-clamped.dx) * dragPower;
-    ball.vy = (-clamped.dy) * dragPower;
+    ball.vx = clamped.dx * dragPower;
+    ball.vy = clamped.dy * dragPower;
 
     isFlying = true;
     canShoot = false;
