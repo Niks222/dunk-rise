@@ -208,6 +208,7 @@ function getDefaultProfile() {
 }
 
 let profile = getDefaultProfile();
+let firebaseUid = null;
 
 let score = 0;
 let stars = 0;
