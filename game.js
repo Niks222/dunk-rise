@@ -1,239 +1,433 @@
-const canvas = document.getElementById("game")
-const ctx = canvas.getContext("2d")
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
 
-canvas.width = window.innerWidth
-canvas.height = window.innerHeight
+const centerScoreEl = document.getElementById("centerScore");
+const starsEl = document.getElementById("stars");
+const bestScoreEl = document.getElementById("bestScore");
+const comboTextEl = document.getElementById("comboText");
 
-let score = 0
-let stars = 0
-let combo = 0
+const restartBtn = document.getElementById("restartBtn");
+const homeBtn = document.getElementById("homeBtn");
+const shopBtn = document.getElementById("shopBtn");
+const closeShopBtn = document.getElementById("closeShopBtn");
+const shopModal = document.getElementById("shopModal");
+const skinsList = document.getElementById("skinsList");
 
-let gravity = 0.6
-let friction = 0.995
+function resizeCanvas() {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+}
+resizeCanvas();
+window.addEventListener("resize", resizeCanvas);
 
-let currentSkin = 0
+let score = 0;
+let bestScore = Number(localStorage.getItem("bestScore") || 244);
+let stars = Number(localStorage.getItem("stars") || 930);
+let combo = 0;
 
 const skins = [
-    { id:0, name:"Classic", price:0, color:"orange"},
-    { id:1, name:"Fire", price:100, color:"red"},
-    { id:2, name:"Neon", price:250, color:"cyan"}
-]
+    { id: 0, name: "Classic", price: 0, color: "#ffae00", glow: "#ff9a00" },
+    { id: 1, name: "Fire", price: 50, color: "#ff5b1f", glow: "#ff6f3c" },
+    { id: 2, name: "Neon", price: 120, color: "#31eaff", glow: "#64f6ff" },
+    { id: 3, name: "Pink", price: 200, color: "#ff57c7", glow: "#ff85da" }
+];
 
-let ball = {
-    x:canvas.width/2,
-    y:canvas.height-120,
-    vx:0,
-    vy:0,
-    r:15,
-    rotation:0
+let ownedSkins = JSON.parse(localStorage.getItem("ownedSkins") || "[0]");
+let currentSkin = Number(localStorage.getItem("currentSkin") || 0);
+
+const ball = {
+    x: 0,
+    y: 0,
+    vx: 0,
+    vy: 0,
+    radius: 18,
+    rotation: 0
+};
+
+const hoop = {
+    x: 0,
+    y: 0,
+    width: 110,
+    rimHeight: 12,
+    moveDir: 1,
+    speed: 1.55
+};
+
+let trail = [];
+let particles = [];
+let scoreFlash = 0;
+let shotActive = false;
+let scoreLock = false;
+let cameraOffsetY = 0;
+
+function currentSkinData() {
+    return skins.find(s => s.id === currentSkin) || skins[0];
 }
 
-let hoop = {
-    x:canvas.width/2,
-    y:200,
-    w:140
+function updateUI() {
+    centerScoreEl.textContent = score;
+    starsEl.textContent = stars;
+    bestScoreEl.textContent = bestScore;
+    comboTextEl.textContent = combo > 1 ? `COMBO x${combo}` : "";
+
+    localStorage.setItem("stars", String(stars));
+    localStorage.setItem("bestScore", String(bestScore));
+    localStorage.setItem("currentSkin", String(currentSkin));
+    localStorage.setItem("ownedSkins", JSON.stringify(ownedSkins));
 }
 
-let hoopDirection = 1
-
-let trail = []
-
-function drawBall(){
-
-    ctx.save()
-
-    ctx.translate(ball.x,ball.y)
-    ctx.rotate(ball.rotation)
-
-    ctx.beginPath()
-    ctx.arc(0,0,ball.r,0,Math.PI*2)
-    ctx.fillStyle = skins[currentSkin].color
-    ctx.fill()
-
-    ctx.restore()
+function resetBall() {
+    ball.x = canvas.width * 0.52;
+    ball.y = canvas.height - 135 + cameraOffsetY;
+    ball.vx = 0;
+    ball.vy = 0;
+    ball.rotation = 0;
+    trail = [];
+    shotActive = false;
+    scoreLock = false;
 }
 
-function drawHoop(){
-
-    ctx.strokeStyle="orange"
-    ctx.lineWidth=6
-
-    ctx.beginPath()
-
-    ctx.moveTo(
-        hoop.x-hoop.w/2,
-        hoop.y
-    )
-
-    ctx.lineTo(
-        hoop.x+hoop.w/2,
-        hoop.y
-    )
-
-    ctx.stroke()
+function resetHoop() {
+    hoop.x = canvas.width * 0.17;
+    hoop.y = canvas.height * 0.36 + cameraOffsetY;
+    hoop.moveDir = 1;
 }
 
-function drawTrail(){
-
-    trail.forEach((p,i)=>{
-
-        ctx.beginPath()
-        ctx.arc(p.x,p.y,3,0,Math.PI*2)
-
-        ctx.fillStyle="rgba(255,80,80,"+(i/trail.length)+")"
-
-        ctx.fill()
-
-    })
-
+function resetGame() {
+    score = 0;
+    combo = 0;
+    cameraOffsetY = 0;
+    particles = [];
+    scoreFlash = 0;
+    updateUI();
+    resetBall();
+    resetHoop();
 }
 
-function updateUI(){
-
-    document.getElementById("score").innerText = score
-    document.getElementById("stars").innerText = "⭐ "+stars
-
+function renderBackgroundGlow() {
+    const glow = ctx.createRadialGradient(
+        canvas.width / 2,
+        canvas.height * 0.2,
+        20,
+        canvas.width / 2,
+        canvas.height * 0.2,
+        canvas.height * 0.7
+    );
+    glow.addColorStop(0, "rgba(255,255,255,0.07)");
+    glow.addColorStop(1, "rgba(255,255,255,0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 }
 
-function physics(){
+function drawHoop() {
+    const y = hoop.y - cameraOffsetY;
 
-    ball.vy += gravity
+    ctx.save();
 
-    ball.x += ball.vx
-    ball.y += ball.vy
+    ctx.beginPath();
+    ctx.ellipse(hoop.x, y, hoop.width / 2, hoop.rimHeight, 0, 0, Math.PI * 2);
+    ctx.strokeStyle = "#ff7a1b";
+    ctx.lineWidth = 6;
+    ctx.shadowColor = "#ff7a1b";
+    ctx.shadowBlur = 18;
+    ctx.stroke();
 
-    ball.vx *= friction
-    ball.vy *= friction
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(220,220,220,0.28)";
+    ctx.lineWidth = 2.8;
 
-    ball.rotation += ball.vx*0.02
-
-    trail.push({x:ball.x,y:ball.y})
-
-    if(trail.length > 25){
-        trail.shift()
+    for (let i = -2; i <= 2; i++) {
+        ctx.beginPath();
+        ctx.moveTo(hoop.x + i * 18, y + 3);
+        ctx.lineTo(hoop.x + i * 12, y + 44);
+        ctx.stroke();
     }
 
-    hoop.x += 2 * hoopDirection
+    ctx.beginPath();
+    ctx.moveTo(hoop.x - 44, y + 42);
+    ctx.lineTo(hoop.x + 44, y + 42);
+    ctx.stroke();
 
-    if(hoop.x > canvas.width-80 || hoop.x < 80){
-        hoopDirection *= -1
+    ctx.restore();
+}
+
+function drawBall() {
+    const skin = currentSkinData();
+
+    ctx.save();
+    ctx.translate(ball.x, ball.y - cameraOffsetY);
+    ctx.rotate(ball.rotation);
+
+    const grad = ctx.createRadialGradient(-6, -6, 2, 0, 0, ball.radius + 7);
+    grad.addColorStop(0, "#fff7cf");
+    grad.addColorStop(0.18, skin.color);
+    grad.addColorStop(1, "#8a4c00");
+
+    ctx.beginPath();
+    ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
+    ctx.fillStyle = grad;
+    ctx.shadowColor = skin.glow;
+    ctx.shadowBlur = 18;
+    ctx.fill();
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(120,50,0,0.5)";
+    ctx.lineWidth = 1.5;
+
+    ctx.beginPath();
+    ctx.arc(0, 0, ball.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.restore();
+}
+
+function drawTrail() {
+    for (let i = 0; i < trail.length; i++) {
+        const p = trail[i];
+        const alpha = i / trail.length;
+
+        ctx.beginPath();
+        ctx.arc(p.x, p.y - cameraOffsetY, 4, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,110,70,${alpha})`;
+        ctx.shadowColor = "rgba(255,120,80,0.45)";
+        ctx.shadowBlur = 10;
+        ctx.fill();
+    }
+}
+
+function spawnParticles(x, y) {
+    for (let i = 0; i < 18; i++) {
+        particles.push({
+            x,
+            y,
+            vx: (Math.random() - 0.5) * 4.6,
+            vy: (Math.random() - 0.5) * 4.6,
+            life: 26 + Math.random() * 18,
+            size: 2 + Math.random() * 3
+        });
+    }
+}
+
+function updateParticles() {
+    for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.03;
+        p.life -= 1;
+
+        if (p.life <= 0) {
+            particles.splice(i, 1);
+        }
+    }
+}
+
+function drawParticles() {
+    for (const p of particles) {
+        ctx.beginPath();
+        ctx.arc(p.x, p.y - cameraOffsetY, p.size, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,185,60,${p.life / 44})`;
+        ctx.shadowColor = "#ffb347";
+        ctx.shadowBlur = 12;
+        ctx.fill();
+    }
+}
+
+function updateHoop() {
+    hoop.x += hoop.speed * hoop.moveDir;
+
+    if (hoop.x > canvas.width - 70 || hoop.x < 70) {
+        hoop.moveDir *= -1;
+    }
+}
+
+function updateBall() {
+    if (!shotActive) return;
+
+    ball.vy += 0.34;
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    ball.vx *= 0.995;
+    ball.vy *= 0.995;
+    ball.rotation += ball.vx * 0.02;
+
+    trail.push({ x: ball.x, y: ball.y });
+    if (trail.length > 15) {
+        trail.shift();
     }
 
-    if(ball.y > canvas.height){
-        resetBall()
-        combo = 0
+    if (ball.y - cameraOffsetY > canvas.height + 70) {
+        combo = 0;
+        updateUI();
+        resetBall();
+    }
+}
+
+function checkScore() {
+    if (scoreLock) return;
+
+    const hoopTop = hoop.y;
+    const withinX = ball.x > hoop.x - hoop.width / 2 && ball.x < hoop.x + hoop.width / 2;
+    const enteringHoop = ball.vy < 0 && ball.y < hoopTop + 10 && ball.y > hoopTop - 26;
+
+    if (withinX && enteringHoop) {
+        scoreLock = true;
+        combo += 1;
+        score += combo;
+        stars += 5;
+        scoreFlash = 12;
+
+        if (score > bestScore) {
+            bestScore = score;
+        }
+
+        spawnParticles(hoop.x, hoop.y + 4);
+
+        hoop.y -= 135;
+        cameraOffsetY += 110;
+
+        updateUI();
+
+        setTimeout(() => {
+            scoreLock = false;
+        }, 250);
+    }
+}
+
+function drawAimDots() {
+    if (shotActive || trail.length > 0) return;
+
+    const dots = 6;
+    for (let i = 0; i < dots; i++) {
+        const t = i / dots;
+        const x = ball.x - 60 - i * 6;
+        const y = ball.y - cameraOffsetY - 30 - i * 22;
+
+        ctx.beginPath();
+        ctx.arc(x, y, 2 + (1 - t) * 2, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,120,80,${0.2 + (1 - t) * 0.5})`;
+        ctx.shadowColor = "rgba(255,120,80,0.5)";
+        ctx.shadowBlur = 8;
+        ctx.fill();
+    }
+}
+
+function updateCenterScoreEffect() {
+    if (scoreFlash > 0) {
+        scoreFlash -= 1;
+        centerScoreEl.style.transform = "translateX(-50%) scale(1.08)";
+        centerScoreEl.style.color = "rgba(255,255,255,1)";
+    } else {
+        centerScoreEl.style.transform = "translateX(-50%) scale(1)";
+        centerScoreEl.style.color = "rgba(255,255,255,0.94)";
+    }
+}
+
+function shootTo(targetX, targetY) {
+    const dx = targetX - ball.x;
+    const dy = targetY - ball.y;
+
+    ball.vx = dx * 0.032;
+    ball.vy = dy * 0.032;
+    shotActive = true;
+}
+
+function renderShop() {
+    skinsList.innerHTML = "";
+
+    for (const skin of skins) {
+        const item = document.createElement("div");
+        item.className = "skin-item";
+
+        const owned = ownedSkins.includes(skin.id);
+        const active = currentSkin === skin.id;
+
+        item.innerHTML = `
+            <div class="skin-left">
+                <div class="skin-preview" style="background:${skin.color};"></div>
+                <div>
+                    <div>${skin.name}</div>
+                    <div style="opacity:.7; font-size:14px;">${owned ? "Owned" : "⭐ " + skin.price}</div>
+                </div>
+            </div>
+        `;
+
+        const btn = document.createElement("button");
+        btn.className = "skin-buy-btn";
+        btn.textContent = active ? "Using" : (owned ? "Use" : "Buy");
+        btn.addEventListener("click", () => buySkin(skin.id));
+
+        item.appendChild(btn);
+        skinsList.appendChild(item);
+    }
+}
+
+function buySkin(id) {
+    if (ownedSkins.includes(id)) {
+        currentSkin = id;
+        updateUI();
+        renderShop();
+        return;
     }
 
-    checkScore()
+    const skin = skins.find(s => s.id === id);
+    if (!skin) return;
 
-}
-
-function checkScore(){
-
-    if(
-        ball.y < hoop.y &&
-        ball.y > hoop.y-10 &&
-        ball.x > hoop.x-hoop.w/2 &&
-        ball.x < hoop.x+hoop.w/2
-    ){
-
-        combo++
-
-        score += 1 + combo
-
-        stars += 10
-
-        hoop.y -= 120
-
-        updateUI()
-
+    if (stars >= skin.price) {
+        stars -= skin.price;
+        ownedSkins.push(id);
+        currentSkin = id;
+        updateUI();
+        renderShop();
     }
-
 }
 
-function resetBall(){
+function loop() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    ball.x = canvas.width/2
-    ball.y = canvas.height-120
+    renderBackgroundGlow();
 
-    ball.vx = 0
-    ball.vy = 0
+    updateHoop();
+    updateBall();
+    checkScore();
+    updateParticles();
+    updateCenterScoreEffect();
 
-    trail = []
+    drawAimDots();
+    drawTrail();
+    drawHoop();
+    drawParticles();
+    drawBall();
 
+    requestAnimationFrame(loop);
 }
 
-canvas.addEventListener("click", e => {
+canvas.addEventListener("click", (e) => {
+    shootTo(e.clientX, e.clientY + cameraOffsetY);
+});
 
-    const rect = canvas.getBoundingClientRect()
+canvas.addEventListener("touchstart", (e) => {
+    const touch = e.touches[0];
+    shootTo(touch.clientX, touch.clientY + cameraOffsetY);
+}, { passive: true });
 
-    const mx = e.clientX - rect.left
-    const my = e.clientY - rect.top
+restartBtn.addEventListener("click", resetGame);
 
-    const dx = mx - ball.x
-    const dy = my - ball.y
+homeBtn.addEventListener("click", () => {
+    resetGame();
+});
 
-    ball.vx = dx * 0.05
-    ball.vy = dy * 0.05
+shopBtn.addEventListener("click", () => {
+    renderShop();
+    shopModal.classList.remove("hidden");
+});
 
-})
+closeShopBtn.addEventListener("click", () => {
+    shopModal.classList.add("hidden");
+});
 
-function buySkin(id){
-
-    if(stars >= skins[id].price){
-
-        stars -= skins[id].price
-
-        currentSkin = id
-
-        updateUI()
-
-    }
-
-}
-
-function sendScore(){
-
-    if(typeof Telegram !== "undefined"){
-
-        const user = Telegram.WebApp.initDataUnsafe.user
-
-        fetch("http://localhost:8000/save_score",{
-
-            method:"POST",
-
-            headers:{
-                "Content-Type":"application/json"
-            },
-
-            body:JSON.stringify({
-                user_id:user.id,
-                score:score,
-                stars:stars
-            })
-
-        })
-
-    }
-
-}
-
-function gameLoop(){
-
-    ctx.clearRect(0,0,canvas.width,canvas.height)
-
-    physics()
-
-    drawTrail()
-    drawBall()
-    drawHoop()
-
-    requestAnimationFrame(gameLoop)
-
-}
-
-setInterval(sendScore,10000)
-
-updateUI()
-
-gameLoop()
+updateUI();
+resetGame();
+renderShop();
+loop();
