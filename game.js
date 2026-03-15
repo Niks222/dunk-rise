@@ -13,13 +13,6 @@ const closeShopBtn = document.getElementById("closeShopBtn");
 const shopModal = document.getElementById("shopModal");
 const skinsList = document.getElementById("skinsList");
 
-function resizeCanvas() {
-    canvas.width = window.innerWidth;
-    canvas.height = window.innerHeight;
-}
-resizeCanvas();
-window.addEventListener("resize", resizeCanvas);
-
 if (typeof Telegram !== "undefined" && Telegram.WebApp) {
     Telegram.WebApp.ready();
     Telegram.WebApp.expand();
@@ -103,15 +96,92 @@ const air = 0.995;
 const dragPower = 0.12;
 const maxDrag = 140;
 
-// Мягкий assist: не чит, а небольшая помощь рядом с кольцом
 const assist = {
     enabled: true,
-    radiusX: 42,          // горизонтальная зона помощи
-    radiusY: 52,          // вертикальная зона помощи
-    strengthX: 0.10,      // насколько подруливать по X
-    strengthY: 0.035,     // насколько подруливать по Y
-    minDownSpeed: 0.8     // помощь только когда мяч реально идёт вниз
+    radiusX: 42,
+    radiusY: 52,
+    strengthX: 0.10,
+    strengthY: 0.035,
+    minDownSpeed: 0.8
 };
+
+const layout = {
+    width: 0,
+    height: 0,
+    safeLeft: 18,
+    safeRight: 18,
+    safeTop: 140,
+    safeBottom: 170,
+    hoopMinY: 0,
+    hoopMaxY: 0,
+    ballStartY: 0
+};
+
+function getViewportSize() {
+    let width = window.innerWidth;
+    let height = window.innerHeight;
+
+    if (typeof Telegram !== "undefined" && Telegram.WebApp) {
+        if (Telegram.WebApp.viewportHeight) {
+            height = Math.round(Telegram.WebApp.viewportHeight);
+        }
+        if (Telegram.WebApp.viewportStableHeight) {
+            height = Math.round(Telegram.WebApp.viewportStableHeight);
+        }
+    }
+
+    return { width, height };
+}
+
+function updateLayout() {
+    const vp = getViewportSize();
+
+    canvas.width = vp.width;
+    canvas.height = vp.height;
+
+    layout.width = vp.width;
+    layout.height = vp.height;
+
+    const isSmallPhone = vp.height < 760;
+
+    layout.safeLeft = Math.max(16, vp.width * 0.04);
+    layout.safeRight = Math.max(16, vp.width * 0.04);
+
+    // Верхняя зона учитывает HUD + Telegram
+    layout.safeTop = isSmallPhone ? 165 : 150;
+
+    // Нижняя зона под мяч и удобный drag
+    layout.safeBottom = isSmallPhone ? 190 : 175;
+
+    layout.hoopMinY = layout.safeTop + 40;
+    layout.hoopMaxY = Math.max(layout.hoopMinY + 20, vp.height * 0.46);
+
+    layout.ballStartY = vp.height - layout.safeBottom;
+
+    centerScoreEl.style.top = isSmallPhone ? "96px" : "110px";
+}
+
+function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+}
+
+function distance(ax, ay, bx, by) {
+    const dx = ax - bx;
+    const dy = ay - by;
+    return Math.hypot(dx, dy);
+}
+
+function clampVector(dx, dy, maxLen) {
+    const len = Math.hypot(dx, dy);
+    if (len <= maxLen || len === 0) {
+        return { dx, dy };
+    }
+    const scale = maxLen / len;
+    return {
+        dx: dx * scale,
+        dy: dy * scale
+    };
+}
 
 const ball = {
     x: 0,
@@ -146,27 +216,9 @@ function currentSkinData() {
     return skins.find(s => s.id === currentSkin) || skins[0];
 }
 
-function distance(ax, ay, bx, by) {
-    const dx = ax - bx;
-    const dy = ay - by;
-    return Math.hypot(dx, dy);
-}
-
-function clampVector(dx, dy, maxLen) {
-    const len = Math.hypot(dx, dy);
-    if (len <= maxLen || len === 0) {
-        return { dx, dy };
-    }
-    const scale = maxLen / len;
-    return {
-        dx: dx * scale,
-        dy: dy * scale
-    };
-}
-
 function resetBall() {
-    ball.x = canvas.width * 0.5;
-    ball.y = canvas.height - 155;
+    ball.x = layout.width * 0.5;
+    ball.y = layout.ballStartY;
     ball.vx = 0;
     ball.vy = 0;
     ball.rotation = 0;
@@ -182,14 +234,29 @@ function resetBall() {
 }
 
 function placeHoopForLevel() {
-    hoop.y = canvas.height * 0.34;
-    hoop.x = Math.max(80, Math.min(canvas.width - 80, hoop.x));
+    hoop.x = clamp(
+        hoop.x,
+        layout.safeLeft + 60,
+        layout.width - layout.safeRight - 60
+    );
+
+    hoop.y = clamp(
+        layout.height * 0.33,
+        layout.hoopMinY,
+        layout.hoopMaxY
+    );
 }
 
 function resetHoop() {
-    hoop.x = canvas.width * 0.22;
+    hoop.x = layout.width * 0.22;
     hoop.moveDir = 1;
     placeHoopForLevel();
+}
+
+function getRandomHoopX() {
+    const minX = layout.safeLeft + 60;
+    const maxX = layout.width - layout.safeRight - 60;
+    return Math.random() * (maxX - minX) + minX;
 }
 
 function resetGame() {
@@ -215,24 +282,28 @@ function failRun() {
 }
 
 function nextLevel() {
-    hoop.x = Math.random() * (canvas.width - 160) + 80;
-    placeHoopForLevel();
+    hoop.x = getRandomHoopX();
+
+    // На следующих уровнях кольцо остаётся в доступной верхней зоне
+    const nextY = clamp(layout.height * 0.30, layout.hoopMinY, layout.hoopMaxY);
+    hoop.y = nextY;
+
     resetBall();
 }
 
 function renderBackgroundGlow() {
     const glow = ctx.createRadialGradient(
-        canvas.width / 2,
-        canvas.height * 0.2,
+        layout.width / 2,
+        layout.height * 0.2,
         20,
-        canvas.width / 2,
-        canvas.height * 0.55,
-        canvas.height * 0.75
+        layout.width / 2,
+        layout.height * 0.55,
+        layout.height * 0.75
     );
     glow.addColorStop(0, "rgba(255,255,255,0.07)");
     glow.addColorStop(1, "rgba(255,255,255,0)");
     ctx.fillStyle = glow;
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillRect(0, 0, layout.width, layout.height);
 }
 
 function drawHoop() {
@@ -351,8 +422,12 @@ function drawParticles() {
 function updateHoop() {
     hoop.x += hoop.speed * hoop.moveDir;
 
-    if (hoop.x > canvas.width - 70 || hoop.x < 70) {
+    const minX = layout.safeLeft + 70;
+    const maxX = layout.width - layout.safeRight - 70;
+
+    if (hoop.x > maxX || hoop.x < minX) {
         hoop.moveDir *= -1;
+        hoop.x = clamp(hoop.x, minX, maxX);
     }
 }
 
@@ -368,10 +443,9 @@ function applyAimAssist() {
 
     if (Math.abs(dx) > assist.radiusX) return;
     if (Math.abs(dy) > assist.radiusY) return;
-    if (ball.y < hoop.y - 40) return; // слишком высоко — не помогаем
-    if (ball.y > hoop.y + 55) return; // слишком низко — поздно
+    if (ball.y < hoop.y - 40) return;
+    if (ball.y > hoop.y + 55) return;
 
-    // Чем ближе, тем сильнее помощь
     const factorX = 1 - Math.abs(dx) / assist.radiusX;
     const factorY = 1 - Math.abs(dy) / assist.radiusY;
 
@@ -397,7 +471,11 @@ function updateBall() {
         trail.shift();
     }
 
-    if (ball.y > canvas.height + 80 || ball.x < -80 || ball.x > canvas.width + 80) {
+    if (
+        ball.y > layout.height + 80 ||
+        ball.x < -80 ||
+        ball.x > layout.width + 80
+    ) {
         failRun();
     }
 }
@@ -508,7 +586,6 @@ function endDrag() {
 
     isDragging = false;
 
-    // Стрелять можно только если реально оттянул вверх от мяча
     if (clamped.dy > -10) return;
 
     ball.vx = (-clamped.dx) * dragPower;
@@ -616,8 +693,20 @@ closeShopBtn.addEventListener("click", () => {
     shopModal.classList.add("hidden");
 });
 
+function handleResize() {
+    updateLayout();
+    resetGame();
+    renderShop();
+}
+
+window.addEventListener("resize", handleResize);
+
+if (typeof Telegram !== "undefined" && Telegram.WebApp) {
+    Telegram.WebApp.onEvent("viewportChanged", handleResize);
+}
+
 function loop() {
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.clearRect(0, 0, layout.width, layout.height);
 
     renderBackgroundGlow();
 
@@ -636,6 +725,7 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
+updateLayout();
 updateUI();
 resetGame();
 renderShop();
