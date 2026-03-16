@@ -10,6 +10,16 @@ import {
     set
 } from 'https://www.gstatic.com/firebasejs/12.0.0/firebase-database.js';
 
+console.log('🚀 [game.js] Script loaded and executing');
+console.log('🌐 [game.js] Environment check:');
+console.log('  - window.location.href:', window.location.href);
+console.log('  - typeof Telegram:', typeof Telegram);
+if (typeof Telegram !== 'undefined' && Telegram.WebApp) {
+    console.log('  ✅ Telegram.WebApp is available');
+} else {
+    console.log('  ❌ Telegram.WebApp is NOT available (running in browser?)');
+}
+
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -106,14 +116,21 @@ function saveLocalCache(profile) {
 async function loginWithTelegram() {
     const initDataRaw = getTelegramInitDataRaw();
 
+    console.log("🔐 [loginWithTelegram] Checking initDataRaw:");
+    console.log("  - Present:", !!initDataRaw);
+    console.log("  - Length:", initDataRaw?.length || 0);
+
     if (!initDataRaw) {
-        console.error("❌ Telegram initData is missing");
+        console.error("❌ [loginWithTelegram] Telegram initData is missing");
+        console.error("💡 IMPORTANT: This app MUST be opened from Telegram Mini App!");
+        console.error("💡 Direct browser access won't work. Use: @basketebalbot");
         throw new Error("Telegram initData is missing");
     }
 
     console.log("🔐 Authenticating with Telegram...");
 
     try {
+        console.log('📤 [loginWithTelegram] POST to:', TELEGRAM_AUTH_URL);
         const response = await fetch(TELEGRAM_AUTH_URL, {
             method: "POST",
             headers: {
@@ -121,6 +138,8 @@ async function loginWithTelegram() {
             },
             body: JSON.stringify({ initDataRaw })
         });
+
+        console.log('📥 [loginWithTelegram] Response status:', response.status);
 
         if (!response.ok) {
             console.error("❌ Telegram auth HTTP error:", response.status, response.statusText);
@@ -147,11 +166,15 @@ async function loginWithTelegram() {
 async function activateReferralIfNeeded() {
     const initDataRaw = getTelegramInitDataRaw();
 
+    console.log("🎁 [activateReferralIfNeeded] Checking need for referral activation");
+
     if (!initDataRaw) {
+        console.log("⚠️ [activateReferralIfNeeded] initDataRaw not available, skipping");
         return;
     }
 
     try {
+        console.log('📤 [activateReferralIfNeeded] POST to:', ACTIVATE_REFERRAL_URL);
         const response = await fetch(ACTIVATE_REFERRAL_URL, {
             method: "POST",
             headers: {
@@ -196,13 +219,23 @@ async function fetchProfileFromFirebase(uid) {
 async function saveGameStateToBackend(gameState) {
     const initDataRaw = getTelegramInitDataRaw();
 
+    console.log('🔍 [saveGameStateToBackend] Checking initDataRaw:');
+    console.log('  - initDataRaw present:', !!initDataRaw);
+    console.log('  - initDataRaw length:', initDataRaw?.length || 0);
+    console.log('  - firebaseUid:', firebaseUid);
+
     if (!initDataRaw) {
-        console.warn("⚠️ initDataRaw not available, skipping backend save");
+        console.warn("⚠️ [saveGameStateToBackend] initDataRaw not available");
+        console.warn("💡 This is normal if running outside Telegram Mini App");
+        console.warn("💡 To test: open from Telegram -> @basketebalbot -> Tap");
         return;
     }
 
     try {
-        console.log("📤 [Backend] Sending game state...", gameState);
+        console.log("📤 [saveGameStateToBackend] Sending game state to backend...");
+        console.log('   Backend URL:', SAVE_GAME_STATE_URL);
+        console.log('   Payload size:', new Blob([JSON.stringify(gameState)]).size, 'bytes');
+        
         const response = await fetch(SAVE_GAME_STATE_URL, {
             method: "POST",
             headers: {
@@ -211,16 +244,19 @@ async function saveGameStateToBackend(gameState) {
             body: JSON.stringify({ initDataRaw, gameState })
         });
 
+        console.log('📥 [saveGameStateToBackend] Response status:', response.status);
+
         if (!response.ok) {
-            console.error("❌ [Backend] Save error:", response.status, response.statusText);
+            console.error("❌ [saveGameStateToBackend] HTTP error:", response.status, response.statusText);
             throw new Error(`Backend save failed: ${response.status}`);
         }
 
         const data = await response.json();
-        console.log("✅ [Backend] Game state saved successfully");
+        console.log("✅ [saveGameStateToBackend] Game state saved successfully:", data);
         return data;
     } catch (error) {
-        console.error("❌ [Backend] Error:", error);
+        console.error("❌ [saveGameStateToBackend] Error:", error);
+        console.error("❌ Stack:", error.stack);
         // Don't throw - let game continue even if backend fails
     }
 }
@@ -387,7 +423,25 @@ async function initProfile() {
     console.log('  - TELEGRAM_AUTH:', TELEGRAM_AUTH_URL);
     console.log('  - SAVE_GAME_STATE:', SAVE_GAME_STATE_URL);
     console.log('  - ACTIVATE_REFERRAL:', ACTIVATE_REFERRAL_URL);
-    console.log('📱 Telegram status:', typeof Telegram !== 'undefined' ? 'Available' : 'NOT AVAILABLE');
+    console.log('📱 Telegram Environment:');
+    console.log('  - typeof window.Telegram:', typeof Telegram);
+    console.log('  - Telegram.WebApp available:', typeof Telegram !== 'undefined' && !!Telegram.WebApp);
+    
+    const testInitData = getTelegramInitDataRaw();
+    console.log('🔐 [initData Check]');
+    console.log('  - initData present:', !!testInitData);
+    console.log('  - initData length:', testInitData?.length || 0);
+    console.log('  - Substring sample:', testInitData ? testInitData.substring(0, 50) + '...' : 'EMPTY');
+    
+    if (!testInitData) {
+        console.error('❌ ===== CRITICAL: No Telegram initData! =====');
+        console.error('⚠️ This app MUST be opened from Telegram Mini App!');
+        console.error('✅ How to open correctly:');
+        console.error('   1. Open Telegram');
+        console.error('   2. Search for: @basketebalbot');
+        console.error('   3. Tap the app button');
+        console.error('❌ DO NOT open in regular browser or copy URL!');
+    }
     
     const localProfile = loadLocalCache();
     console.log("💾 Local cache status:", localProfile ? "FOUND" : "EMPTY");
@@ -429,25 +483,31 @@ async function initProfile() {
         console.log("✅ ===== PROFILE INIT SUCCESS =====");
     } catch (error) {
         console.error("❌ PROFILE INIT FAILED:", error);
-        console.error("Error code:", error.code);
-        console.error("Error message:", error.message);
+        console.error("❌ Error code:", error.code);
+        console.error("❌ Error message:", error.message);
+        console.error("❌ Error stack:", error.stack);
+        console.error("❌ authSuccess was:", authSuccess);
         
         if (!authSuccess) {
-            console.warn("⚠️  Auth failed - falling back to local only");
+            console.error('❌ ===== AUTHENTICATION FAILED =====');
+            console.error('💡 Most likely cause: initData is missing or invalid');
+            console.error('💡 Solution: Open app from Telegram Mini App (@basketebalbot)');
+            console.warn("⚠️  Falling back to LOCAL ONLY mode - data won't sync to backend");
             firebaseUid = null; // Explicitly set to null on auth failure
         }
 
         if (localProfile) {
-            console.log("💾 Applying local cache");
+            console.log("💾 Applying saved local cache");
             applyProfile(localProfile);
         } else {
-            console.log("🆕 Using default profile");
+            console.log("🆕 Using fresh default profile (first time?)");
             applyProfile(getDefaultProfile());
         }
     }
 
     profileLoaded = true;
     console.log("✅ Profile loaded into memory");
+    console.log('💾 Current state:', { firebaseUid, profileLoaded, canPlayGame: true });
     updateUI();
     renderShop();
 }
