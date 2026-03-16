@@ -310,6 +310,7 @@ async function syncProfileSave() {
     
     // Всегда сохранять в локальный кеш
     saveLocalCache(currentProfile);
+    console.log('💾 Profile saved to localStorage');
 
     if (!firebaseUid) {
         console.warn("⚠️  Firebase UID not available - profile saved locally only");
@@ -412,6 +413,13 @@ function updateUI() {
     starsEl.textContent = stars;
     bestScoreEl.textContent = bestScore;
     comboTextEl.textContent = combo > 1 ? `COMBO x${combo}` : "";
+
+    console.log('📊 UI Updated:', {
+        score,
+        stars,
+        bestScore,
+        combo
+    });
 
     queueProfileSave();
 }
@@ -607,6 +615,14 @@ function resetGame() {
 }
 
 function failRun() {
+    console.log('💥 GAME OVER!', {
+        finalScore: score,
+        bestScore,
+        totalStars: stars,
+        combo,
+        firebaseUid
+    });
+
     score = 0;
     combo = 0;
     particles = [];
@@ -839,6 +855,14 @@ function checkScore() {
             bestScore = score;
         }
 
+        console.log('🎯 SCORED!', {
+            score,
+            stars,
+            combo,
+            bestScore,
+            firebaseUid
+        });
+
         spawnParticles(hoop.x, hoop.y + 4);
         updateUI();
 
@@ -926,6 +950,12 @@ function endDrag() {
 
     if (clamped.dy > -10) return;
 
+    console.log('🏀 SHOOT!', { 
+        velocityX: clamped.dx * dragPower,
+        velocityY: clamped.dy * dragPower,
+        power: Math.sqrt((clamped.dx * dragPower) ** 2 + (clamped.dy * dragPower) ** 2)
+    });
+
     ball.vx = clamped.dx * dragPower;
     ball.vy = clamped.dy * dragPower;
 
@@ -965,6 +995,7 @@ function renderShop() {
 
 function buySkin(id) {
     if (ownedSkins.includes(id)) {
+        console.log('👕 SKIN SELECTED:', { skinId: id, starsRemaining: stars });
         currentSkin = id;
         updateUI();
         renderShop();
@@ -975,6 +1006,15 @@ function buySkin(id) {
     if (!skin) return;
 
     if (stars >= skin.price) {
+        console.log('💳 SKIN PURCHASED!', { 
+            skinId: id, 
+            skinName: skin.name, 
+            price: skin.price, 
+            starsBefore: stars,
+            starsAfter: stars - skin.price,
+            firebaseUid 
+        });
+
         stars -= skin.price;
         ownedSkins.push(id);
         currentSkin = id;
@@ -989,6 +1029,13 @@ function buySkin(id) {
         }
         
         renderShop();
+    } else {
+        console.log('❌ INSUFFICIENT STARS for skin:', { 
+            skinId: id, 
+            skinName: skin.name, 
+            price: skin.price, 
+            starsAvailable: stars 
+        });
     }
 }
 
@@ -1019,6 +1066,13 @@ window.addEventListener("touchend", () => {
 }, { passive: true });
 
 restartBtn.addEventListener("click", async () => {
+    console.log('🔄 GAME RESTART CLICKED!', {
+        lastScore: score,
+        lastBestScore: bestScore,
+        totalStars: stars,
+        firebaseUid
+    });
+
     const freshProfile = getDefaultProfile();
 
     applyProfile(freshProfile);
@@ -1030,6 +1084,7 @@ restartBtn.addEventListener("click", async () => {
     try {
         if (firebaseUid) {
             await saveProfileToFirebase(firebaseUid, freshProfile);
+            console.log('✅ Profile reset synced to Firebase');
         }
     } catch (error) {
         console.error("Profile reset sync error:", error);
