@@ -260,24 +260,30 @@ let saveTimer = null;
 let profileLoaded = false;
 
 async function syncProfileSave() {
+    const currentProfile = collectCurrentProfile();
+    
+    // Всегда сохранять в локальный кеш
+    saveLocalCache(currentProfile);
+
     if (!firebaseUid) {
+        console.warn("Firebase UID not available - profile saved locally only");
         return;
     }
-
-    const currentProfile = collectCurrentProfile();
-    saveLocalCache(currentProfile);
 
     try {
         const saved = await saveProfileToFirebase(firebaseUid, currentProfile);
         profile = saved;
         saveLocalCache(saved);
+        console.log("Profile saved to Firebase successfully");
     } catch (error) {
         console.error("Firebase save error:", error);
+        console.warn("Could not save to Firebase - profile saved locally only");
     }
 }
 
 function queueProfileSave() {
     if (!profileLoaded) {
+        console.warn("Profile not yet loaded, save queued");
         return;
     }
 
@@ -289,9 +295,12 @@ function queueProfileSave() {
 
 async function initProfile() {
     const localProfile = loadLocalCache();
+    let authSuccess = false;
 
     try {
         firebaseUid = await loginWithTelegram();
+        authSuccess = true;
+        console.log("Firebase authentication successful");
 
         await activateReferralIfNeeded();
 
@@ -322,6 +331,11 @@ async function initProfile() {
         }
     } catch (error) {
         console.error("Profile init error:", error);
+        
+        if (!authSuccess) {
+            console.warn("Firebase authentication failed - using local cache only");
+            firebaseUid = null; // Explicitly set to null on auth failure
+        }
 
         if (localProfile) {
             applyProfile(localProfile);
@@ -907,7 +921,16 @@ function buySkin(id) {
         stars -= skin.price;
         ownedSkins.push(id);
         currentSkin = id;
+        
+        // Ensure immediate save to both local and Firebase
         updateUI();
+        
+        // Force immediate Firebase save if available
+        if (firebaseUid) {
+            const currentProfile = collectCurrentProfile();
+            syncProfileSave();
+        }
+        
         renderShop();
     }
 }
@@ -998,14 +1021,10 @@ function handleResize() {
     renderShop();
 }
 
-window.addEventListener("resize", handleResize);
-
-if (typeof Telegram !== "undefined" && Telegram.WebApp) {
-    Telegram.WebApp.onEvent("viewportChanged", handleResize);
-}
-
 function loop() {
-    ctx.clearRect(0, 0, layout.width, layout.height);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = "#0a0e27";
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
 
     renderBackgroundGlow();
 
@@ -1024,8 +1043,22 @@ function loop() {
     requestAnimationFrame(loop);
 }
 
-updateLayout();
-updatePhysicsForScreen();
-resetGame();
-initProfile();
-loop();
+// Initialize game - wait for profile to load before starting
+(async () => {
+    updateLayout();
+    updatePhysicsForScreen();
+    resetGame();
+    
+    console.log("Initializing game profile...");
+    await initProfile();
+    console.log("Profile initialization complete");
+    
+    // Start game loop after profile is loaded
+    requestAnimationFrame(loop);
+    
+    // Add event listeners after profile is loaded
+    window.addEventListener("resize", handleResize);
+    if (typeof Telegram !== "undefined" && Telegram.WebApp) {
+        Telegram.WebApp.onEvent("viewportChanged", handleResize);
+    }
+})();
