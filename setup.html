@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>DunkRise - Setup Instructions</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px 30px;
+            max-width: 500px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+        
+        .emoji {
+            font-size: 60px;
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        
+        .error-box {
+            background: #fee;
+            border-left: 4px solid #f44;
+            padding: 15px;
+            margin-bottom: 25px;
+            border-radius: 8px;
+        }
+        
+        .error-box h2 {
+            color: #c33;
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        
+        .error-box p {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .instructions {
+            background: #f9f9f9;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 25px;
+        }
+        
+        .instructions h3 {
+            color: #333;
+            font-size: 16px;
+            margin-bottom: 15px;
+        }
+        
+        .steps {
+            list-style: none;
+            counter-reset: step-counter;
+        }
+        
+        .steps li {
+            counter-increment: step-counter;
+            margin-bottom: 12px;
+            padding-left: 35px;
+            position: relative;
+            color: #555;
+            line-height: 1.4;
+        }
+        
+        .steps li:before {
+            content: counter(step-counter);
+            position: absolute;
+            left: 0;
+            top: 0;
+            background: #667eea;
+            color: white;
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+        }
+        
+        .qr-section {
+            text-align: center;
+            margin: 25px 0;
+            padding: 20px;
+            background: #f0f0f0;
+            border-radius: 10px;
+        }
+        
+        .qr-section h3 {
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        
+        .qr-code {
+            width: 200px;
+            height: 200px;
+            margin: 0 auto;
+            background: white;
+            padding: 10px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        
+        .qr-code img {
+            width: 100%;
+            height: 100%;
+        }
+        
+        .button-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-top: 25px;
+        }
+        
+        .btn {
+            padding: 12px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn-primary {
+            background: #667eea;
+            color: white;
+            grid-column: 1 / -1;
+        }
+        
+        .btn-primary:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #f0f0f0;
+            color: #333;
+            border: 1px solid #ddd;
+        }
+        
+        .btn-secondary:hover {
+            background: #e8e8e8;
+            border-color: #ccc;
+        }
+        
+        .debug-section {
+            margin-top: 25px;
+            padding-top: 25px;
+            border-top: 1px solid #eee;
+        }
+        
+        .debug-section h3 {
+            color: #666;
+            font-size: 14px;
+            margin-bottom: 12px;
+        }
+        
+        .debug-info {
+            background: #f5f5f5;
+            padding: 12px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            color: #666;
+            line-height: 1.6;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        
+        .status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+        
+        .status.ok .dot {
+            background: #4caf50;
+        }
+        
+        .status.error .dot {
+            background: #f44;
+        }
+        
+        .dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="emoji">🎮</div>
+        <h1>DunkRise Setup</h1>
+        
+        <div class="error-box">
+            <h2>⚠️ Incorrect Access</h2>
+            <p>You are accessing the game directly in a browser. This won't work!</p>
+        </div>
+        
+        <div class="instructions">
+            <h3>✅ How to Open Game Correctly</h3>
+            <ol class="steps">
+                <li><strong>Open Telegram</strong> on your phone (mobile app, not web)</li>
+                <li><strong>Search for bot:</strong> <code>@basketebalbot</code></li>
+                <li><strong>Tap the app button</strong> in the bot's messages</li>
+                <li><strong>Game opens with Telegram auth</strong> ✓</li>
+            </ol>
+        </div>
+        
+        <div class="qr-section">
+            <h3>📱 Scan QR Code or Use Link</h3>
+            <div class="qr-code">
+                <img src="https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=https%3A%2F%2Ft.me%2Fbasketballbot" alt="QR Code to bot">
+            </div>
+            <p style="margin-top: 15px; font-size: 12px; color: #666;">
+                Scan with your phone to open Telegram bot
+            </p>
+        </div>
+        
+        <div class="button-group">
+            <a href="https://t.me/basketebalbot" class="btn btn-primary">
+                🤖 Open Telegram Bot
+            </a>
+            <button class="btn btn-secondary" onclick="openGameLocally()">
+                💻 Test Locally
+            </button>
+            <button class="btn btn-secondary" onclick="copyBotLink()">
+                📋 Copy Link
+            </button>
+        </div>
+        
+        <div class="debug-section">
+            <h3>🔍 Debug Info</h3>
+            <div class="debug-info">
+                <div class="status" id="status-telegram">
+                    <span class="dot"></span>
+                    <span>Telegram.WebApp: <span id="telegram-status">Checking...</span></span>
+                </div>
+                <div class="status" id="status-initdata">
+                    <span class="dot"></span>
+                    <span>initData: <span id="initdata-status">Checking...</span></span>
+                </div>
+                <div class="status" id="status-backend">
+                    <span class="dot"></span>
+                    <span>Backend: <span id="backend-status">Checking...</span></span>
+                </div>
+                <div style="margin-top: 8px; padding-top: 8px; border-top: 1px solid #ddd;">
+                    <div style="color: #999; font-size: 11px;">
+                        URL: <span id="location-info">loading...</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Check environment
+        function checkEnvironment() {
+            // Check Telegram
+            const hasTelegram = typeof Telegram !== 'undefined' && Telegram.WebApp;
+            const telegramEl = document.getElementById('status-telegram');
+            const telegramStatus = document.getElementById('telegram-status');
+            
+            if (hasTelegram) {
+                telegramEl.classList.add('ok');
+                telegramStatus.textContent = 'Available ✓';
+            } else {
+                telegramEl.classList.add('error');
+                telegramStatus.textContent = 'Not Available ✗';
+            }
+            
+            // Check initData
+            let initDataPresent = false;
+            if (hasTelegram && Telegram.WebApp.initData) {
+                initDataPresent = true;
+            }
+            
+            const initDataEl = document.getElementById('status-initdata');
+            const initDataStatus = document.getElementById('initdata-status');
+            
+            if (initDataPresent) {
+                initDataEl.classList.add('ok');
+                initDataStatus.textContent = 'Available ✓';
+            } else {
+                initDataEl.classList.add('error');
+                initDataStatus.textContent = 'Not Available ✗';
+            }
+            
+            // Check backend
+            fetch('https://dunk-rise.onrender.com/')
+                .then(r => {
+                    const backendEl = document.getElementById('status-backend');
+                    const backendStatus = document.getElementById('backend-status');
+                    if (r.ok) {
+                        backendEl.classList.add('ok');
+                        backendStatus.textContent = 'Online ✓';
+                    } else {
+                        backendEl.classList.add('error');
+                        backendStatus.textContent = `Error ${r.status} ✗`;
+                    }
+                })
+                .catch(() => {
+                    const backendEl = document.getElementById('status-backend');
+                    const backendStatus = document.getElementById('backend-status');
+                    backendEl.classList.add('error');
+                    backendStatus.textContent = 'Offline ✗';
+                });
+            
+            // Location info
+            document.getElementById('location-info').textContent = 
+                window.location.href.substring(0, 50) + '...';
+        }
+        
+        function openGameLocally() {
+            window.location.href = './index.html';
+        }
+        
+        function copyBotLink() {
+            const link = 'https://t.me/basketebalbot';
+            navigator.clipboard.writeText(link).then(() => {
+                alert('Bot link copied! Paste it in Telegram search.');
+            });
+        }
+        
+        // Run checks on load
+        window.addEventListener('load', checkEnvironment);
+        checkEnvironment();
+    </script>
+</body>
+</html>

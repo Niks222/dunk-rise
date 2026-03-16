@@ -441,6 +441,22 @@ async function initProfile() {
         console.error('   2. Search for: @basketebalbot');
         console.error('   3. Tap the app button');
         console.error('❌ DO NOT open in regular browser or copy URL!');
+        
+        // Show user-friendly alert
+        setTimeout(() => {
+            alert(
+                '⚠️ DunkRise Setup\n\n' +
+                '❌ This app must be opened from Telegram Mini App!\n\n' +
+                '✅ Correct way:\n' +
+                '1. Open Telegram app\n' +
+                '2. Search: @basketebalbot\n' +
+                '3. Tap app button\n\n' +
+                '❌ DO NOT:\n' +
+                '- Open direct URL\n' +
+                '- Use browser\n' +
+                '- Copy/paste link'
+            );
+        }, 100);
     }
     
     const localProfile = loadLocalCache();

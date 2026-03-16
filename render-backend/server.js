@@ -113,11 +113,73 @@ function validateTelegramInitData(initDataRaw) {
 }
 
 app.get('/', (req, res) => {
-  console.log('📡 [GET /] Health check received');
-  res.json({
-    ok: true,
-    service: 'dunk-rise-backend',
-  });
+  console.log('📡 [GET /] Request received from:', req.headers['user-agent']);
+  
+  const isMobile = /mobile|android|iphone/i.test(req.headers['user-agent']);
+  
+  if (isMobile) {
+    // Mobile user - likely clicked direct link, show helpful message
+    res.send(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <title>DunkRise</title>
+        <style>
+          body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background: #667eea;
+            margin: 0;
+            padding: 20px;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+          }
+          .box {
+            background: white;
+            padding: 30px;
+            border-radius: 15px;
+            text-align: center;
+            max-width: 400px;
+          }
+          h1 { color: #333; margin: 0 0 20px 0; }
+          p { color: #666; margin: 10px 0; line-height: 1.5; }
+          a { 
+            display: inline-block;
+            margin-top: 20px;
+            padding: 12px 24px;
+            background: #667eea;
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: 600;
+          }
+          .emoji { font-size: 50px; margin-bottom: 10px; }
+        </style>
+      </head>
+      <body>
+        <div class="box">
+          <div class="emoji">🤖</div>
+          <h1>DunkRise</h1>
+          <p><strong>⚠️ Incorrect Access!</strong></p>
+          <p>This app must be opened from Telegram Mini App</p>
+          <p>❌ Don't use direct links</p>
+          <p>✅ Tap the app from @basketebalbot in Telegram</p>
+          <a href="https://t.me/basketebalbot">Open Telegram Bot →</a>
+        </div>
+      </body>
+      </html>
+    `);
+  } else {
+    // Desktop user or health check
+    res.json({
+      ok: true,
+      service: 'dunk-rise-backend',
+      message: 'For game: open from @basketebalbot in Telegram (mobile only)',
+    });
+  }
 });
 
 app.post('/telegram-auth', async (req, res) => {
