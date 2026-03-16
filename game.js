@@ -102,29 +102,41 @@ async function loginWithTelegram() {
     const initDataRaw = getTelegramInitDataRaw();
 
     if (!initDataRaw) {
+        console.error("❌ Telegram initData is missing");
         throw new Error("Telegram initData is missing");
     }
 
-    const response = await fetch(TELEGRAM_AUTH_URL, {
-        method: "POST",
-        headers: {
-            "Content-Type": "application/json"
-        },
-        body: JSON.stringify({ initDataRaw })
-    });
+    console.log("🔐 Authenticating with Telegram...");
 
-    if (!response.ok) {
-        throw new Error(`Telegram auth failed: ${response.status}`);
+    try {
+        const response = await fetch(TELEGRAM_AUTH_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ initDataRaw })
+        });
+
+        if (!response.ok) {
+            console.error("❌ Telegram auth HTTP error:", response.status, response.statusText);
+            throw new Error(`Telegram auth failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("📩 Auth response received:", { uid: data.uid, hasToken: !!data.customToken });
+
+        if (!data.customToken || !data.uid) {
+            console.error("❌ Invalid auth response:", data);
+            throw new Error("Invalid auth response");
+        }
+
+        await signInWithCustomToken(auth, data.customToken);
+        console.log("✅ Signed in to Firebase with custom token");
+        return data.uid;
+    } catch (error) {
+        console.error("❌ loginWithTelegram error:", error);
+        throw error;
     }
-
-    const data = await response.json();
-
-    if (!data.customToken || !data.uid) {
-        throw new Error("Invalid auth response");
-    }
-
-    await signInWithCustomToken(auth, data.customToken);
-    return data.uid;
 }
 
 async function activateReferralIfNeeded() {
@@ -155,13 +167,25 @@ async function activateReferralIfNeeded() {
 }
 
 async function fetchProfileFromFirebase(uid) {
-    const snapshot = await get(ref(db, `profiles/${uid}`));
+    console.log("Fetching profile from Firebase:", uid);
+    
+    try {
+        const snapshot = await get(ref(db, `profiles/${uid}`));
 
-    if (!snapshot.exists()) {
-        return null;
+        if (!snapshot.exists()) {
+            console.log("⚠️  No profile found in Firebase for:", uid);
+            return null;
+        }
+
+        const profile = snapshot.val();
+        console.log("✅ Fetched profile from Firebase:", profile);
+        return profile;
+    } catch (error) {
+        console.error("❌ Firebase fetch error:", error);
+        console.error("Error code:", error.code);
+        console.error("Error message:", error.message);
+        throw error;
     }
-
-    return snapshot.val();
 }
 
 async function saveProfileToFirebase(uid, profile) {
@@ -182,6 +206,7 @@ async function saveProfileToFirebase(uid, profile) {
     const payload = {
         bestScore: Number(profile.bestScore || 0),
         stars: Number(profile.stars || 0),
+        combo: Number(profile.combo || 0),
         ownedSkins: safeOwnedSkins,
         currentSkin: safeCurrentSkin,
         updatedAt: Date.now(),
@@ -189,8 +214,18 @@ async function saveProfileToFirebase(uid, profile) {
         referralRewardGiven: Boolean(profile.referralRewardGiven)
     };
 
-    await set(ref(db, `profiles/${uid}`), payload);
-    return payload;
+    console.log("Saving to Firebase:", { uid, payload });
+    
+    try {
+        await set(ref(db, `profiles/${uid}`), payload);
+        console.log("✅ Successfully saved to Firebase");
+        return payload;
+    } catch (error) {
+        console.error("❌ Firebase save error:", error);
+        console.error("Error code:", error.code);
+        console.error("Error message:", error.message);
+        throw error;
+    }
 }
 
 const skins = [
@@ -271,22 +306,25 @@ let profileLoaded = false;
 async function syncProfileSave() {
     const currentProfile = collectCurrentProfile();
     
+    console.log("🔄 Sync profile save requested", { firebaseUid, profileLoaded, currentProfile });
+    
     // Всегда сохранять в локальный кеш
     saveLocalCache(currentProfile);
 
     if (!firebaseUid) {
-        console.warn("Firebase UID not available - profile saved locally only");
+        console.warn("⚠️  Firebase UID not available - profile saved locally only");
         return;
     }
 
     try {
+        console.log("📤 Sending to Firebase...");
         const saved = await saveProfileToFirebase(firebaseUid, currentProfile);
         profile = saved;
         saveLocalCache(saved);
-        console.log("Profile saved to Firebase successfully");
+        console.log("✅ Profile synced successfully to Firebase and local cache");
     } catch (error) {
-        console.error("Firebase save error:", error);
-        console.warn("Could not save to Firebase - profile saved locally only");
+        console.error("❌ Firebase save error:", error);
+        console.warn("⚠️  Could not save to Firebase - profile saved locally only");
     }
 }
 
@@ -303,58 +341,67 @@ function queueProfileSave() {
 }
 
 async function initProfile() {
+    console.log("📋 ===== PROFILE INITIALIZATION STARTED =====");
+    
     const localProfile = loadLocalCache();
+    console.log("💾 Local cache status:", localProfile ? "FOUND" : "EMPTY");
+    
     let authSuccess = false;
 
     try {
+        console.log("🔑 Step 1: Authenticating with Telegram backend...");
         firebaseUid = await loginWithTelegram();
         authSuccess = true;
-        console.log("Firebase authentication successful with UID:", firebaseUid);
+        console.log("✅ Step 1 DONE: firebaseUid =", firebaseUid);
 
+        console.log("🎁 Step 2: Checking referral rewards...");
         await activateReferralIfNeeded();
+        console.log("✅ Step 2 DONE");
 
+        console.log("📥 Step 3: Fetching profile from Firebase...");
         const remoteProfile = await fetchProfileFromFirebase(firebaseUid);
 
         if (remoteProfile) {
-            // ALWAYS prefer server profile - for cross-device sync
-            // Local cache is only a fallback
-            console.log("Using server profile for cross-device sync", {
-                server: remoteProfile,
-                local: localProfile ? "exists" : "none"
-            });
-            
+            console.log("✅ Step 3: Remote profile FOUND");
+            console.log("🔄 Using SERVER profile (newest data wins for sync)");
             applyProfile(remoteProfile);
             saveLocalCache(remoteProfile);
         } else if (localProfile) {
-            // No remote profile - use local and sync to server
-            console.log("No remote profile found, syncing local to server");
+            console.log("⚠️  Step 3: Remote profile NOT FOUND");
+            console.log("📤 Syncing LOCAL profile UP to Firebase...");
             applyProfile(localProfile);
             await saveProfileToFirebase(firebaseUid, localProfile);
         } else {
-            // New user - create fresh profile
+            console.log("⚠️  Step 3: No remote, no local => NEW USER");
             const freshProfile = getDefaultProfile();
             applyProfile(freshProfile);
+            console.log("📤 Saving fresh profile to Firebase...");
             await saveProfileToFirebase(firebaseUid, freshProfile);
             saveLocalCache(freshProfile);
         }
+        
+        console.log("✅ ===== PROFILE INIT SUCCESS =====");
     } catch (error) {
-        console.error("Profile init error:", error);
+        console.error("❌ PROFILE INIT FAILED:", error);
+        console.error("Error code:", error.code);
+        console.error("Error message:", error.message);
         
         if (!authSuccess) {
-            console.warn("Firebase authentication failed - using local cache only");
+            console.warn("⚠️  Auth failed - falling back to local only");
             firebaseUid = null; // Explicitly set to null on auth failure
         }
 
         if (localProfile) {
-            console.log("Applying local cache after auth failure");
+            console.log("💾 Applying local cache");
             applyProfile(localProfile);
         } else {
-            console.log("No local cache, using default profile");
+            console.log("🆕 Using default profile");
             applyProfile(getDefaultProfile());
         }
     }
 
     profileLoaded = true;
+    console.log("✅ Profile loaded into memory");
     updateUI();
     renderShop();
 }
