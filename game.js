@@ -558,9 +558,9 @@ function updatePhysicsForScreen() {
         maxDrag = 170;
         wallBounce = 0.84;
     } else {
-        dragPower = 0.10;
-        maxDrag = 150;
-        wallBounce = 0.82;
+        dragPower = 0.12;
+        maxDrag = 170;
+        wallBounce = 0.84;
     }
 }
 
