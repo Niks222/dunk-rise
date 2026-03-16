@@ -317,6 +317,75 @@ app.post('/activate-referral', async (req, res) => {
   }
 });
 
+app.post('/save-game-state', async (req, res) => {
+  try {
+    console.log('\n📨 [save-game-state] REQUEST RECEIVED');
+    const {initDataRaw, gameState} = req.body || {};
+
+    console.log('📨 [save-game-state] Payload received:', !!gameState);
+
+    if (!initDataRaw || typeof initDataRaw !== 'string') {
+      console.error('❌ [save-game-state] initDataRaw is missing');
+      return res.status(400).json({error: 'initDataRaw is required'});
+    }
+
+    if (!gameState || typeof gameState !== 'object') {
+      console.error('❌ [save-game-state] gameState is missing or invalid');
+      return res.status(400).json({error: 'gameState is required'});
+    }
+
+    const initData = validateTelegramInitData(initDataRaw);
+
+    if (!initData.user || !initData.user.id) {
+      console.error('❌ [save-game-state] Telegram user not found');
+      return res.status(401).json({error: 'Telegram user not found'});
+    }
+
+    const uid = getUidFromTelegramId(initData.user.id);
+    console.log('👤 [save-game-state] User UID:', uid);
+
+    const payload = {
+      bestScore: Number(gameState.bestScore || 0),
+      stars: Number(gameState.stars || 0),
+      combo: Number(gameState.combo || 0),
+      score: Number(gameState.score || 0),
+      ownedSkins: Array.isArray(gameState.ownedSkins) ? gameState.ownedSkins : [0],
+      currentSkin: Number(gameState.currentSkin || 0),
+      updatedAt: Date.now(),
+      referredBy: gameState.referredBy || null,
+      referralRewardGiven: Boolean(gameState.referralRewardGiven),
+    };
+
+    console.log('📊 [save-game-state] Game state:', {
+      score: payload.score,
+      bestScore: payload.bestScore,
+      stars: payload.stars,
+      combo: payload.combo,
+      currentSkin: payload.currentSkin,
+    });
+
+    const profileRef = db.ref(`profiles/${uid}`);
+    
+    console.log('📤 [save-game-state] Updating Firebase profile...');
+    await profileRef.update(payload);
+
+    console.log('✅ [save-game-state] Firebase update SUCCESS');
+    console.log('✅ [save-game-state] RESPONSE SENT:', {ok: true, updated: true, uid});
+
+    return res.json({
+      ok: true,
+      updated: true,
+      uid,
+    });
+  } catch (error) {
+    console.error('❌ [save-game-state] ERROR:', error.message);
+    console.error('❌ [save-game-state] Stack:', error.stack);
+    return res.status(500).json({
+      error: 'Game state save failed',
+    });
+  }
+});
+
 app.listen(PORT, () => {
   console.log('\n' + '='.repeat(50));
   console.log('🚀 Backend started on port', PORT);

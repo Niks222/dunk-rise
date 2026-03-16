@@ -45,12 +45,17 @@ const db = getDatabase(firebaseApp);
 const BACKEND_BASE_URL = 'https://dunk-rise.onrender.com';
 const TELEGRAM_AUTH_URL = `${BACKEND_BASE_URL}/telegram-auth`;
 const ACTIVATE_REFERRAL_URL = `${BACKEND_BASE_URL}/activate-referral`;
+const SAVE_GAME_STATE_URL = `${BACKEND_BASE_URL}/save-game-state`;
 const LOCAL_CACHE_KEY = "dunkrise_profile_cache";
 
 function getTelegramInitDataRaw() {
     try {
         if (typeof Telegram !== "undefined" && Telegram.WebApp) {
-            return Telegram.WebApp.initData || "";
+            const initData = Telegram.WebApp.initData || "";
+            console.log('🔐 [initData] Telegram.WebApp detected, initData length:', initData.length);
+            return initData;
+        } else {
+            console.warn('❌ [initData] Telegram.WebApp not found');
         }
     } catch (error) {
         console.error("Telegram initData read error:", error);
@@ -188,6 +193,38 @@ async function fetchProfileFromFirebase(uid) {
     }
 }
 
+async function saveGameStateToBackend(gameState) {
+    const initDataRaw = getTelegramInitDataRaw();
+
+    if (!initDataRaw) {
+        console.warn("⚠️ initDataRaw not available, skipping backend save");
+        return;
+    }
+
+    try {
+        console.log("📤 [Backend] Sending game state...", gameState);
+        const response = await fetch(SAVE_GAME_STATE_URL, {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ initDataRaw, gameState })
+        });
+
+        if (!response.ok) {
+            console.error("❌ [Backend] Save error:", response.status, response.statusText);
+            throw new Error(`Backend save failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        console.log("✅ [Backend] Game state saved successfully");
+        return data;
+    } catch (error) {
+        console.error("❌ [Backend] Error:", error);
+        // Don't throw - let game continue even if backend fails
+    }
+}
+
 async function saveProfileToFirebase(uid, profile) {
     const safeOwnedSkins =
         Array.isArray(profile.ownedSkins) && profile.ownedSkins.length > 0
@@ -312,6 +349,9 @@ async function syncProfileSave() {
     saveLocalCache(currentProfile);
     console.log('💾 Profile saved to localStorage');
 
+    // Отправить на backend параллельно (не ждём ответа)
+    saveGameStateToBackend(currentProfile); // Fire and forget
+
     if (!firebaseUid) {
         console.warn("⚠️  Firebase UID not available - profile saved locally only");
         return;
@@ -343,6 +383,11 @@ function queueProfileSave() {
 
 async function initProfile() {
     console.log("📋 ===== PROFILE INITIALIZATION STARTED =====");
+    console.log('🌐 Backend URLs:');
+    console.log('  - TELEGRAM_AUTH:', TELEGRAM_AUTH_URL);
+    console.log('  - SAVE_GAME_STATE:', SAVE_GAME_STATE_URL);
+    console.log('  - ACTIVATE_REFERRAL:', ACTIVATE_REFERRAL_URL);
+    console.log('📱 Telegram status:', typeof Telegram !== 'undefined' ? 'Available' : 'NOT AVAILABLE');
     
     const localProfile = loadLocalCache();
     console.log("💾 Local cache status:", localProfile ? "FOUND" : "EMPTY");
