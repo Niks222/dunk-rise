@@ -61,6 +61,7 @@ function getDefaultProfile() {
   return {
     bestScore: 0,
     stars: 0,
+    combo: 0,
     ownedSkins: [0],
     currentSkin: 0,
     updatedAt: 0,
@@ -91,6 +92,7 @@ function ensureProfileShape(profile) {
   return {
     bestScore: Number(profile?.bestScore || 0),
     stars: Number(profile?.stars || 0),
+    combo: Number(profile?.combo || 0),
     ownedSkins: safeOwnedSkins,
     currentSkin,
     updatedAt: Number(profile?.updatedAt || 0),

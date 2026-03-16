@@ -87,7 +87,12 @@ function loadLocalCache() {
 
 function saveLocalCache(profile) {
     try {
-        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(profile));
+        // Use server timestamp, not local time, to avoid clock sync issues
+        const cacheData = {
+            ...profile,
+            syncedFromServer: firebaseUid ? true : false, // Mark if from server
+        };
+        localStorage.setItem(LOCAL_CACHE_KEY, JSON.stringify(cacheData));
     } catch (error) {
         console.error("Local cache save error:", error);
     }
@@ -210,10 +215,11 @@ function getDefaultProfile() {
 let profile = getDefaultProfile();
 let firebaseUid = null;
 
+// Game state - synced to Firebase
 let score = 0;
 let stars = 0;
 let bestScore = 0;
-let combo = 0;
+let combo = 0; // 🔄 NOTE: Now synced to Firebase for cross-device compatibility
 let ownedSkins = [0];
 let currentSkin = 0;
 
@@ -221,6 +227,7 @@ function applyProfile(newProfile) {
     profile = {
         bestScore: Number(newProfile.bestScore || 0),
         stars: Number(newProfile.stars || 0),
+        combo: Number(newProfile.combo || 0), // Load combo from profile
         ownedSkins: Array.isArray(newProfile.ownedSkins) && newProfile.ownedSkins.length > 0
             ? [...new Set(newProfile.ownedSkins.map(Number))]
             : [0],
@@ -240,6 +247,7 @@ function applyProfile(newProfile) {
 
     stars = profile.stars;
     bestScore = profile.bestScore;
+    combo = profile.combo; // Apply combo from profile
     ownedSkins = profile.ownedSkins;
     currentSkin = profile.currentSkin;
 }
@@ -248,6 +256,7 @@ function collectCurrentProfile() {
     return {
         bestScore,
         stars,
+        combo, // Include combo in profile
         ownedSkins,
         currentSkin,
         updatedAt: Date.now(),
@@ -300,30 +309,29 @@ async function initProfile() {
     try {
         firebaseUid = await loginWithTelegram();
         authSuccess = true;
-        console.log("Firebase authentication successful");
+        console.log("Firebase authentication successful with UID:", firebaseUid);
 
         await activateReferralIfNeeded();
 
         const remoteProfile = await fetchProfileFromFirebase(firebaseUid);
 
-        if (remoteProfile && localProfile) {
-            const remoteUpdated = Number(remoteProfile.updatedAt || 0);
-            const localUpdated = Number(localProfile.updatedAt || 0);
-
-            if (localUpdated > remoteUpdated) {
-                applyProfile(localProfile);
-                await saveProfileToFirebase(firebaseUid, localProfile);
-            } else {
-                applyProfile(remoteProfile);
-                saveLocalCache(remoteProfile);
-            }
-        } else if (remoteProfile) {
+        if (remoteProfile) {
+            // ALWAYS prefer server profile - for cross-device sync
+            // Local cache is only a fallback
+            console.log("Using server profile for cross-device sync", {
+                server: remoteProfile,
+                local: localProfile ? "exists" : "none"
+            });
+            
             applyProfile(remoteProfile);
             saveLocalCache(remoteProfile);
         } else if (localProfile) {
+            // No remote profile - use local and sync to server
+            console.log("No remote profile found, syncing local to server");
             applyProfile(localProfile);
             await saveProfileToFirebase(firebaseUid, localProfile);
         } else {
+            // New user - create fresh profile
             const freshProfile = getDefaultProfile();
             applyProfile(freshProfile);
             await saveProfileToFirebase(firebaseUid, freshProfile);
@@ -338,8 +346,10 @@ async function initProfile() {
         }
 
         if (localProfile) {
+            console.log("Applying local cache after auth failure");
             applyProfile(localProfile);
         } else {
+            console.log("No local cache, using default profile");
             applyProfile(getDefaultProfile());
         }
     }
