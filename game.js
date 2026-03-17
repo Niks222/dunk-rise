@@ -20,6 +20,23 @@ if (typeof Telegram !== 'undefined' && Telegram.WebApp) {
     console.log('  ❌ Telegram.WebApp is NOT available (running in browser?)');
 }
 
+const funnyPopup = document.getElementById("funnyPopup");
+let funnyPopupTimeout = null;
+
+function showFunnyPopup() {
+    if (!funnyPopup) return;
+
+    funnyPopup.classList.add("show");
+
+    if (funnyPopupTimeout) {
+        clearTimeout(funnyPopupTimeout);
+    }
+
+    funnyPopupTimeout = setTimeout(() => {
+        funnyPopup.classList.remove("show");
+    }, 900);
+}
+
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
